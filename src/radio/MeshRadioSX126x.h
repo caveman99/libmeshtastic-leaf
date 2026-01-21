@@ -9,7 +9,6 @@
 
 #include "../MeshRegion.h"
 #include "MeshRadio.h"
-#include <SX126x.h>
 
 namespace libmeshtastic_leaf {
 

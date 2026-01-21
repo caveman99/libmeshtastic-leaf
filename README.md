@@ -27,9 +27,9 @@ Download and install via the Library Manager or manually place in your libraries
 
 ## Dependencies
 
-- RadioLib (^7.5.0)
-- Nanopb (^0.4.91)
-- Crypto (^0.4.0)
+- jgromes/RadioLib@^7.5.0
+- nanopb/Nanopb@^0.4.91
+- rweather/Crypto@^0.4.0
 
 ## Quick Start
 

@@ -9,7 +9,6 @@
 
 #include "../MeshRegion.h"
 #include "MeshRadio.h"
-#include <LR11x0.h>
 
 namespace libmeshtastic_leaf {
 
@@ -45,7 +44,7 @@ public:
     }
 
     // Set CRC on
-    state = module_->setCRC(RADIOLIB_LR11X0_LORA_CRC_ON);
+    state = module_->setCRC(2);
     if (state != RADIOLIB_ERR_NONE) {
       return false;
     }
