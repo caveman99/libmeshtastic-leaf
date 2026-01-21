@@ -1,0 +1,33 @@
+{
+  "name": "libmeshtastic-leaf",
+  "version": "1.0.0",
+  "description": "Minimal, cross-platform Arduino-compatible library for Meshtastic leaf node operation. Enables sending, receiving, and processing Meshtastic packets without routing or rebroadcasting.",
+  "keywords": "meshtastic, lora, mesh, radio, leaf, iot",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/meshtastic/firmware.git"
+  },
+  "authors": [
+    {
+      "name": "Meshtastic",
+      "url": "https://meshtastic.org"
+    }
+  ],
+  "license": "GPL-3.0",
+  "homepage": "https://meshtastic.org",
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32", "espressif8266", "nordicnrf52", "raspberrypi", "ststm32"],
+  "dependencies": {
+    "jgromes/RadioLib": "^7.5.0",
+    "nanopb/Nanopb": "^0.4.91",
+    "rweather/Crypto": "^0.4.0"
+  },
+  "build": {
+    "srcFilter": [
+      "+<*>",
+      "+<radio/*>",
+      "+<generated/*>",
+      "+<generated/meshtastic/*>"
+    ]
+  }
+}
