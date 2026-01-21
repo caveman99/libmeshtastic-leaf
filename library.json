@@ -16,7 +16,13 @@
   "license": "GPL-3.0",
   "homepage": "https://meshtastic.org",
   "frameworks": ["arduino"],
-  "platforms": ["espressif32", "espressif8266", "nordicnrf52", "raspberrypi", "ststm32"],
+  "platforms": [
+    "espressif32",
+    "espressif8266",
+    "nordicnrf52",
+    "raspberrypi",
+    "ststm32"
+  ],
   "dependencies": {
     "jgromes/RadioLib": "^7.5.0",
     "nanopb/Nanopb": "^0.4.91",

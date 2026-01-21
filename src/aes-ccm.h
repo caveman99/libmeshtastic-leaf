@@ -11,8 +11,8 @@
 
 #pragma once
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 namespace libmeshtastic_leaf {
 
@@ -34,10 +34,10 @@ namespace libmeshtastic_leaf {
  * @param auth Output authentication tag buffer (M bytes)
  * @return 0 on success, -1 on error
  */
-int aes_ccm_ae(const uint8_t* key, size_t key_len, const uint8_t* nonce, size_t M,
-               const uint8_t* plain, size_t plain_len,
-               const uint8_t* aad, size_t aad_len,
-               uint8_t* crypt, uint8_t* auth);
+int aes_ccm_ae(const uint8_t *key, size_t key_len, const uint8_t *nonce,
+               size_t M, const uint8_t *plain, size_t plain_len,
+               const uint8_t *aad, size_t aad_len, uint8_t *crypt,
+               uint8_t *auth);
 
 /**
  * @brief AES-CCM authenticated decryption
@@ -57,9 +57,9 @@ int aes_ccm_ae(const uint8_t* key, size_t key_len, const uint8_t* nonce, size_t 
  * @param plain Output plaintext buffer (same size as ciphertext)
  * @return true if decryption and verification succeeded, false otherwise
  */
-bool aes_ccm_ad(const uint8_t* key, size_t key_len, const uint8_t* nonce, size_t M,
-                const uint8_t* crypt, size_t crypt_len,
-                const uint8_t* aad, size_t aad_len,
-                const uint8_t* auth, uint8_t* plain);
+bool aes_ccm_ad(const uint8_t *key, size_t key_len, const uint8_t *nonce,
+                size_t M, const uint8_t *crypt, size_t crypt_len,
+                const uint8_t *aad, size_t aad_len, const uint8_t *auth,
+                uint8_t *plain);
 
 } // namespace libmeshtastic_leaf
