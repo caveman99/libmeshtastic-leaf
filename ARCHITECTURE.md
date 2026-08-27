@@ -119,6 +119,9 @@ exactly or nothing interoperates.
 the band edge in a few regions. That is what the firmware computes, so it is
 reproduced rather than corrected.
 
+The frequencies and slots for EU_868, EU_866, EU_N_868, JP and US were read
+back from a node running firmware 2.8.0 and are pinned as a test.
+
 ## Transmission
 
 `send*()` stages one frame and returns; `update()` drives it. The states are

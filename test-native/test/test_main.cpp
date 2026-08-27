@@ -628,6 +628,32 @@ TEST(request_id_defaults_to_zero) {
   ASSERT_EQ(requestId, 0u);
 }
 
+// Values read back from a Seeed Wio Tracker L1 running firmware 2.8.0, which
+// logs the frequency and slot it picked for each region and preset.
+TEST(frequencies_match_the_firmware) {
+  struct Case {
+    RegionCode region;
+    ModemPreset preset;
+    float freq;    // "Radio freq=" from the firmware log
+    uint32_t slot; // "channel_num:" from the firmware log, one based
+  };
+  const Case cases[] = {
+      {REGION_EU_868, PRESET_LONG_FAST, 869.525f, 1},
+      {REGION_EU_866, PRESET_LITE_FAST, 866.300f, 2},
+      {REGION_EU_N_868, PRESET_NARROW_SLOW, 869.442f, 1},
+      {REGION_JP, PRESET_LONG_FAST, 923.375f, 12},
+      {REGION_US, PRESET_LONG_FAST, 906.875f, 20},
+  };
+
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+    const Case &c = cases[i];
+    float freq = MeshRegion::getFrequency(c.region, c.preset, "");
+    // The firmware logs three decimals, so compare at that resolution.
+    ASSERT_TRUE(freq > c.freq - 0.0005f && freq < c.freq + 0.0005f);
+    ASSERT_EQ(MeshRegion::getDefaultSlot(c.region, c.preset, "") + 1, c.slot);
+  }
+}
+
 int main() {
   printf("libmeshtastic_leaf Unit Tests\n");
   printf("=========================\n\n");
@@ -685,6 +711,7 @@ int main() {
   RUN_TEST(eu_n_868_uses_its_override_slot);
   RUN_TEST(ham_padding_widens_the_channel);
   RUN_TEST(us_longfast_default_slot);
+  RUN_TEST(frequencies_match_the_firmware);
   RUN_TEST(explicit_slot_is_one_based);
   RUN_TEST(jp_slots_fit_the_band);
   RUN_TEST(every_region_first_slot_inside_band);
