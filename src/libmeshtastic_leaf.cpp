@@ -1,16 +1,11 @@
-/**
- * @file libmeshtastic_leaf.cpp
- * @brief Implementation of main Meshtastic Leaf API
- */
 
 #include "libmeshtastic_leaf.h"
 #include <string.h>
 
 namespace libmeshtastic_leaf {
 
-// RadioLib packet callbacks take a plain void(*)(void) with no context
-// pointer, so the received flag has to live at file scope. This mirrors what
-// LoRaWANNode does and means one active instance per process.
+// RadioLib packet callbacks carry no context pointer, so the flag lives at
+// file scope. Same constraint as LoRaWANNode: one active instance per process.
 static volatile bool packetReceivedFlag = false;
 
 static void onPacketReceived() { packetReceivedFlag = true; }
@@ -32,15 +27,12 @@ bool libmeshtastic_leaf::begin(const MeshConfig &config, PhysicalLayer *phy) {
   config_ = config;
   phy_ = phy;
 
-  // Apply frequency, modem parameters, sync word, preamble and power
   if (!applyRfConfig()) {
     return false;
   }
 
-  // Initialize with default channel
   setDefaultChannel();
 
-  // Start receiving
   packetReceivedFlag = false;
   phy_->setPacketReceivedAction(onPacketReceived);
   if (phy_->startReceive() != RADIOLIB_ERR_NONE) {
@@ -140,7 +132,6 @@ uint32_t libmeshtastic_leaf::sendData(meshtastic_PortNum port,
     return 0;
   }
 
-  // Create header
   PacketHeader header;
   memset(&header, 0, sizeof(header));
   header.to = dest;
@@ -174,7 +165,6 @@ uint32_t libmeshtastic_leaf::sendDataPKI(meshtastic_PortNum port,
     return 0;
   }
 
-  // Create header (PKI uses channel = 0)
   PacketHeader header;
   memset(&header, 0, sizeof(header));
   header.to = destNode;
@@ -196,7 +186,6 @@ uint32_t libmeshtastic_leaf::sendPacket(PacketHeader &header,
     return 0;
   }
 
-  // Encode the Data message
   uint8_t dataMsg[MAX_ENCRYPTED_PAYLOAD];
   size_t dataMsgLen;
   if (!MeshPacketCodec::encodeDataMessage(meshtastic_PortNum_TEXT_MESSAGE_APP,
@@ -204,30 +193,25 @@ uint32_t libmeshtastic_leaf::sendPacket(PacketHeader &header,
     return 0;
   }
 
-  // Build complete packet
   uint8_t txBuffer[MAX_LORA_PAYLOAD_LEN];
   size_t txLen;
 
   if (usePKI && remotePubKey != nullptr) {
-    // PKI encryption
     if (!MeshPacketCodec::encodePacketPKI(header, dataMsg, dataMsgLen, pki_,
                                           remotePubKey, txBuffer, txLen)) {
       return 0;
     }
   } else {
-    // Channel encryption
     if (!MeshPacketCodec::encodePacket(header, dataMsg, dataMsgLen, channel_,
                                        txBuffer, txLen)) {
       return 0;
     }
   }
 
-  // Transmit
   if (phy_->transmit(txBuffer, txLen) != RADIOLIB_ERR_NONE) {
     return 0;
   }
 
-  // Restart receive mode
   packetReceivedFlag = false;
   phy_->startReceive();
 
@@ -239,7 +223,6 @@ void libmeshtastic_leaf::update() {
     return;
   }
 
-  // Check for received packet
   if (packetReceivedFlag && !rxPending_) {
     packetReceivedFlag = false;
 
@@ -254,7 +237,6 @@ void libmeshtastic_leaf::update() {
       lastSnr_ = phy_->getSNR();
       rxPending_ = true;
 
-      // If callback is set, process immediately
       if (receiveCallback_ != nullptr) {
         MeshPacket packet;
         if (receive(packet) == ReceiveResult::OK) {
@@ -263,7 +245,6 @@ void libmeshtastic_leaf::update() {
       }
     }
 
-    // Restart receive mode
     phy_->startReceive();
   }
 }
@@ -275,21 +256,17 @@ ReceiveResult libmeshtastic_leaf::receive(MeshPacket &packet) {
     return ReceiveResult::NO_PACKET;
   }
 
-  // Check minimum size
   if (rxLen_ < MESHTASTIC_HEADER_LENGTH) {
     rxPending_ = false;
     return ReceiveResult::TOO_SHORT;
   }
 
-  // Check if PKI packet
   if (MeshPacketCodec::isPKIPacket(rxBuffer_, rxLen_)) {
-    // PKI decryption
     if (pkiKeyLookup_ == nullptr) {
       rxPending_ = false;
       return ReceiveResult::PKI_KEY_UNKNOWN;
     }
 
-    // Get sender's public key
     PacketHeader tempHeader;
     MeshPacketCodec::unpackHeader(rxBuffer_, tempHeader);
 
@@ -305,9 +282,8 @@ ReceiveResult libmeshtastic_leaf::receive(MeshPacket &packet) {
     if (result == ReceiveResult::OK) {
       packet.rxRssi = lastRssi_;
       packet.rxSnr = lastSnr_;
-      // Note: packet.rxTime would need millis() from Arduino
+      // rxTime is left unset; it would need millis() from Arduino.
 
-      // Decode the Data message
       meshtastic_PortNum portNum;
       uint8_t innerPayload[MAX_ENCRYPTED_PAYLOAD];
       size_t innerLen;
@@ -322,7 +298,6 @@ ReceiveResult libmeshtastic_leaf::receive(MeshPacket &packet) {
     rxPending_ = false;
     return result;
   } else {
-    // Channel decryption - check hash matches
     if (!MeshPacketCodec::matchesChannelHash(rxBuffer_, rxLen_,
                                              channel_.getHash())) {
       rxPending_ = false;
@@ -336,7 +311,6 @@ ReceiveResult libmeshtastic_leaf::receive(MeshPacket &packet) {
       packet.rxRssi = lastRssi_;
       packet.rxSnr = lastSnr_;
 
-      // Decode the Data message
       meshtastic_PortNum portNum;
       uint8_t innerPayload[MAX_ENCRYPTED_PAYLOAD];
       size_t innerLen;

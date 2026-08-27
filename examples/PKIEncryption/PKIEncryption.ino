@@ -1,45 +1,26 @@
-/**
- * @file PKIEncryption.ino
- * @brief PKI (Public Key Infrastructure) encryption example
- *
- * This example demonstrates:
- * - Generating Curve25519 keypairs
- * - Storing and managing public keys for other nodes
- * - Sending PKI-encrypted messages to specific nodes
- * - Receiving and decrypting PKI messages
- *
- * PKI encryption provides end-to-end encryption between two specific
- * nodes, even if the channel PSK is compromised.
- *
- * Hardware: ESP32 with SX1262
- */
+// Encrypted direct messages using Curve25519 keys.
+// SX1262 on ESP32; adjust the pins below for your board.
 
 #include <SPI.h>
 #include <libmeshtastic_leaf.h>
 
-// Pin definitions
 #define LORA_CS   18
 #define LORA_IRQ  26
 #define LORA_RST  14
 #define LORA_BUSY 33
 
-// Create instances
 SX1262 radio = new Module(LORA_CS, LORA_IRQ, LORA_RST, LORA_BUSY);
 libmeshtastic_leaf::libmeshtastic_leaf mesh;
 
-// Our keypair (in a real app, store these securely in NVS/EEPROM)
+// A real application stores these in NVS or EEPROM, not in RAM.
 uint8_t myPublicKey[32];
 uint8_t myPrivateKey[32];
 
-// Known remote nodes and their public keys
-// In a real application, this would be stored in non-volatile memory
-// and managed through a key exchange protocol
 struct RemoteNode {
     uint32_t nodeNum;
     uint8_t publicKey[32];
 };
 
-// Example: Pre-configured remote node (replace with actual values)
 RemoteNode knownNodes[] = {
     {
         0x11223344,  // Node ID
@@ -85,14 +66,13 @@ void setup() {
 
     SPI.begin();
 
-    // Configure radio using region helpers
     libmeshtastic_leaf::RadioConfig radioConfig;
     radioConfig.region = libmeshtastic_leaf::REGION_US;  // Set your region
     radioConfig.preset = libmeshtastic_leaf::PRESET_LONG_FAST;
     radioConfig.frequency = libmeshtastic_leaf::MeshRegion::getDefaultFrequency(radioConfig.region);
     radioConfig.txPower = libmeshtastic_leaf::MeshRegion::getPowerLimit(radioConfig.region);
 
-    // Chip-specific bring-up is the sketch's job. The library only speaks
+    // Chip specific bring-up belongs to the sketch; the library only speaks
     // the generic RadioLib PhysicalLayer API.
     int st = radio.begin();
     if (st != RADIOLIB_ERR_NONE) {
@@ -104,10 +84,8 @@ void setup() {
     radio.setCRC(2);                  // Meshtastic requires LoRa CRC
     radio.setCurrentLimit(140.0f);
 
-    // Configure mesh
     libmeshtastic_leaf::MeshConfig meshConfig;
     meshConfig.radio = radioConfig;
-    // Get node number from hardware MAC address
     meshConfig.nodeNum = libmeshtastic_leaf::MeshNodeId::getNodeNum();
     meshConfig.hopLimit = 3;
 
@@ -116,18 +94,13 @@ void setup() {
         while (1) delay(1000);
     }
 
-    // Generate or load keypair
-    // In a real application, check if keys exist in NVS first
     Serial.println("Generating Curve25519 keypair...");
     libmeshtastic_leaf::libmeshtastic_leaf::generateKeyPair(myPublicKey, myPrivateKey);
 
-    // Set our private key for PKI operations
     mesh.setMyPrivateKey(myPrivateKey);
 
-    // Register the key lookup callback
     mesh.onReceivePKI(lookupPublicKey);
 
-    // Also set up a channel for non-PKI messages
     mesh.setDefaultChannel();
 
     Serial.println("Ready!");
@@ -149,14 +122,12 @@ void setup() {
     Serial.println();
 }
 
-// Serial input
 char inputBuffer[200];
 int inputPos = 0;
 
 void processCommand(const char* input) {
     if (strlen(input) == 0) return;
 
-    // PKI message: #NODEID message
     if (input[0] == '#') {
         char* space = strchr(input, ' ');
         if (space && (space - input) > 1) {
@@ -170,7 +141,6 @@ void processCommand(const char* input) {
             const char* message = space + 1;
 
             if (destNode != 0 && strlen(message) > 0) {
-                // Find the public key for this node
                 const uint8_t* remotePubKey = nullptr;
                 for (int i = 0; i < numKnownNodes; i++) {
                     if (knownNodes[i].nodeNum == destNode) {
@@ -204,7 +174,6 @@ void processCommand(const char* input) {
         return;
     }
 
-    // Direct message: @NODEID message
     if (input[0] == '@') {
         char* space = strchr(input, ' ');
         if (space && (space - input) > 1) {
@@ -237,7 +206,6 @@ void processCommand(const char* input) {
         return;
     }
 
-    // Broadcast
     Serial.print("Broadcasting: ");
     Serial.println(input);
     uint32_t id = mesh.sendText(input);

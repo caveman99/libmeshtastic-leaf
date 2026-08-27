@@ -1,50 +1,80 @@
 # libmeshtastic-leaf
 
-A minimal, cross-platform Arduino-compatible C++ library for operating Meshtastic devices as leaf nodes. Enables sending, receiving, and processing Meshtastic packets without routing or rebroadcasting.
+A Meshtastic leaf node as an Arduino library. It sends, receives and decrypts
+Meshtastic packets. It does not route, rebroadcast, or keep a node database.
 
-## Features
+The radio is driven entirely through RadioLib's generic `PhysicalLayer`
+interface, so any LoRa chip RadioLib supports works without a driver in this
+library. See [ARCHITECTURE.md](ARCHITECTURE.md) for where the line between the
+two sits, and what this library deliberately does not do.
 
-- Send and receive text/data messages over LoRa
-- Channel-based PSK encryption (AES-CTR)
-- PKI encryption (Curve25519 + AES-CCM)
-- Support for multiple radio chips (SX1262, SX1268, SX1276, SX1278, SX1280, LR11x0)
-- Cross-platform (ESP32, ESP8266, nRF52, Raspberry Pi, STM32)
+## Status
+
+Working: packet framing, channel (PSK) encryption, PKI encryption, region and
+preset tables, `Data` payload encoding.
+
+Not implemented yet: the MAC layer. There is no carrier sense, no contention
+window, no airtime accounting and no duty cycle limiting, so transmissions can
+talk over ongoing traffic and are **not compliant with EU duty cycle limits**.
+The frequency slot calculation is also incomplete for regions whose profile has
+non-zero channel spacing or padding.
 
 ## Installation
 
-### PlatformIO
-
-Add to your `platformio.ini`:
+PlatformIO:
 
 ```ini
 lib_deps =
-    libmeshtastic-leaf
+    https://github.com/caveman99/libmeshtastic-leaf.git
 ```
 
-### Arduino IDE
+Arduino IDE: install through the Library Manager, or copy the repository into
+your libraries folder.
 
-Download and install via the Library Manager or manually place in your libraries folder.
+### Dependencies
 
-## Dependencies
+| Dependency                | Note                                     |
+| ------------------------- | ---------------------------------------- |
+| `jgromes/RadioLib@^7.7.1` | the radio driver                         |
+| `nanopb/Nanopb@^0.4.91`   | runtime for the generated `Data` message |
+| `meshtastic/Crypto`       | AES, Curve25519, SHA256                  |
 
-- jgromes/RadioLib@^7.5.0
-- nanopb/Nanopb@^0.4.91
-- rweather/Crypto@^0.4.0
+The crypto dependency must be [meshtastic/Crypto](https://github.com/meshtastic/Crypto),
+not upstream `rweather/Crypto`. The fork renames the `RNG` global to `CryptRNG`
+to avoid a collision with toolchains that declare their own, and exposes
+`Curve25519::isWeakPoint()`.
 
-## Quick Start
+`library.json` is the single source of truth for these pins. `bin/version.py`
+copies them into the examples, and CI fails if they disagree.
+
+## Quick start
+
+The sketch owns chip specific bring-up: pins, TCXO, current limit, RF switch,
+and enabling LoRa CRC, which Meshtastic requires and `PhysicalLayer` does not
+expose. This library then applies frequency, spreading factor, bandwidth,
+coding rate, sync word, preamble and power for the configured region and preset.
 
 ```cpp
-#include <MeshtasticLeaf.h>
-#include <MeshRadioSX126x.h>
+#include <RadioLib.h>
+#include <libmeshtastic_leaf.h>
 
-MeshtasticLeaf mesh;
-MeshRadioSX126x radio(NSS_PIN, DIO1_PIN, RST_PIN, BUSY_PIN);
+SX1262 radio = new Module(18, 26, 14, 33);
+libmeshtastic_leaf::libmeshtastic_leaf mesh;
 
 void setup() {
-    MeshConfig config;
-    config.nodeNum = getHardwareNodeId();
-    config.region = meshtastic_Config_LoRaConfig_RegionCode_US;
-    config.modemPreset = meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST;
+    Serial.begin(115200);
+    SPI.begin();
+
+    radio.begin();
+    radio.setTCXO(1.8f);
+    radio.setCRC(2);
+    radio.setCurrentLimit(140.0f);
+
+    libmeshtastic_leaf::MeshConfig config;
+    config.nodeNum = libmeshtastic_leaf::MeshNodeId::getNodeNum();
+    config.hopLimit = 3;
+    config.radio.region = libmeshtastic_leaf::REGION_EU_868;
+    config.radio.preset = libmeshtastic_leaf::PRESET_LONG_FAST;
 
     mesh.begin(config, &radio);
     mesh.setDefaultChannel();
@@ -54,57 +84,155 @@ void loop() {
     mesh.update();
 
     if (mesh.available()) {
-        MeshPacket packet;
-        if (mesh.receive(packet) == ReceiveResult::Success) {
-            // Handle received packet
+        libmeshtastic_leaf::MeshPacket packet;
+        if (mesh.receive(packet) == libmeshtastic_leaf::ReceiveResult::OK) {
+            Serial.write(packet.payload, packet.payloadLen);
         }
     }
-
-    // Send a message
-    mesh.sendText("Hello mesh!", BROADCAST_ADDR);
 }
 ```
 
-## API Overview
+Everything lives in namespace `libmeshtastic_leaf`.
 
-### Initialization
+## API
 
-- `begin(config, radio)` - Initialize with configuration and radio driver
-- `end()` - Shutdown the library
+### Lifecycle
+
+| Call                                            | Meaning                                                            |
+| ----------------------------------------------- | ------------------------------------------------------------------ |
+| `bool begin(const MeshConfig&, PhysicalLayer*)` | apply RF config, set the default channel, start receiving          |
+| `void end()`                                    | stop receiving and put the radio to sleep                          |
+| `void update()`                                 | call from `loop()`; drains the radio and runs the receive callback |
+
+`MeshConfig` holds `nodeNum`, `hopLimit` and a `RadioConfig` with `region`,
+`preset`, and optional `frequency` and `txPower` overrides. Leave the last two
+at zero to take the region defaults.
 
 ### Channels
 
-- `setChannel(psk, len, name)` - Configure channel with custom PSK
-- `setDefaultChannel()` - Use the Meshtastic default channel
+| Call                                                                     | Meaning                             |
+| ------------------------------------------------------------------------ | ----------------------------------- |
+| `bool setChannel(const uint8_t *psk, size_t len, const char *name = "")` | set the PSK and channel name        |
+| `void setDefaultChannel()`                                               | use the Meshtastic public channel   |
+| `ChannelHash getChannelHash() const`                                     | the hash byte that goes on the wire |
 
-### Sending Messages
+A PSK length of 0 disables encryption, 1 selects a default key by index, 16 is
+AES128 and 32 is AES256. Other lengths are zero padded up to the next of those.
 
-- `sendText(text, dest)` - Send text message
-- `sendData(port, data, len, dest, wantAck)` - Send raw data
-- `sendTextPKI(text, node, pubKey)` - Send PKI-encrypted text
-- `sendDataPKI(port, data, len, node, pubKey, wantAck)` - Send PKI-encrypted data
+### Sending
 
-### Receiving Messages
+| Call                                                                                                                              | Returns                    |
+| --------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| `uint32_t sendText(const char *text, NodeNum dest = BROADCAST_ADDR)`                                                              | packet id, or 0 on failure |
+| `uint32_t sendData(meshtastic_PortNum, const uint8_t *data, size_t len, NodeNum dest, bool wantAck)`                              | packet id, or 0            |
+| `uint32_t sendTextPKI(const char *text, NodeNum dest, const uint8_t pubKey[32])`                                                  | packet id, or 0            |
+| `uint32_t sendDataPKI(meshtastic_PortNum, const uint8_t *data, size_t len, NodeNum dest, const uint8_t pubKey[32], bool wantAck)` | packet id, or 0            |
 
-- `update()` - Process radio events (call in loop)
-- `available()` - Check if packet is available
-- `receive(packet)` - Receive decoded packet
-- `onReceive(callback)` - Set receive callback
+Sending blocks until the transmission completes.
 
-### PKI Encryption
+### Receiving
 
-- `generateKeyPair(pubKey, privKey)` - Generate Curve25519 keypair
-- `setMyPrivateKey(privKey)` - Set node's private key
-- `onReceivePKI(callback)` - Set PKI key lookup callback
+| Call                                 | Meaning                                   |
+| ------------------------------------ | ----------------------------------------- |
+| `bool available()`                   | a decoded packet is waiting               |
+| `ReceiveResult receive(MeshPacket&)` | take it; `ReceiveResult::OK` on success   |
+| `void onReceive(PacketCallback)`     | called from `update()` instead of polling |
+
+`MeshPacket` carries the header, `portNum`, `payload`, `payloadLen`, `rxRssi`,
+`rxSnr` and `isPKI`.
+
+### PKI
+
+| Call                                                             | Meaning                                      |
+| ---------------------------------------------------------------- | -------------------------------------------- |
+| `static void generateKeyPair(uint8_t pub[32], uint8_t priv[32])` | new Curve25519 keypair                       |
+| `void setMyPrivateKey(const uint8_t priv[32])`                   | required before PKI traffic                  |
+| `void onReceivePKI(PKIKeyLookup)`                                | supply a sender's public key when decrypting |
+
+Key storage is the application's job. This library keeps keys in RAM and never
+writes to flash.
+
+### Helpers
+
+`MeshNodeId` derives a node number from the hardware: `getNodeNum()`,
+`nodeNumFromMac()`, `getShortName()`, `getLastByte()`.
+
+`MeshRegion` looks up regulatory and modem data: `getRegion()`,
+`getRegionName()`, `getDefaultFrequency()`, `getPowerLimit()`, `isWideLoRa()`,
+`getModemParams()`, `getPresetName()`, `getAllRegions()`.
 
 ## Examples
 
-See the `examples/` directory for complete examples:
+Each example is a self contained PlatformIO project. Build one by changing into
+its directory and running `pio run`.
 
-- **BasicSendReceive** - Simple transmit and receive
-- **TextMessaging** - Custom channel messaging
-- **PKIEncryption** - Public key encrypted messaging
+| Example                     | Shows                                       |
+| --------------------------- | ------------------------------------------- |
+| `examples/BasicSendReceive` | transmit and receive on the default channel |
+| `examples/TextMessaging`    | a custom channel and PSK                    |
+| `examples/PKIEncryption`    | encrypted direct messages                   |
+
+## Development
+
+### Tests
+
+```sh
+cd test-native
+pio test -e native
+```
+
+The tests are a host build and need no board. They live in their own PlatformIO
+project because a `platformio.ini` at the repository root would make PlatformIO
+treat `library.json` as the project manifest and try to build RadioLib and
+Crypto for the host.
+
+### Protobufs
+
+A leaf only ever parses the `Data` submessage of `mesh.proto`. Generating
+`mesh.proto` whole would pull in `config`, `device_ui`, `module_config`,
+`telemetry` and `xmodem`, so `bin/regen-protos.py` trims `Data` out at the
+descriptor level and generates from that.
+
+Nothing in this repository restates a `.proto` or a nanopb option. The
+`protobufs` submodule is the only source, and the trimmed descriptor is derived
+on every run and never committed. The imports and the nanopb options are read
+off the message itself, so a new upstream field is picked up without editing
+anything here.
+
+```sh
+git submodule update --init protobufs
+pip install 'nanopb==0.4.9.1' grpcio-tools
+python bin/regen-protos.py
+```
+
+The generator version decides the exact bytes of the output, so use the pinned
+one. CI regenerates and fails if the committed files differ, which catches both
+a hand edited generated file and an upstream change not yet pulled in.
+
+### Versioning
+
+`library.json` holds the version and the dependency pins. Everything else is
+derived from it.
+
+```sh
+python bin/version.py --check     # CI runs this
+python bin/version.py --sync      # rewrite derived files
+python bin/version.py --set 1.2.0
+```
+
+### Releasing
+
+Run the Release workflow from the Actions tab with a `MAJOR.MINOR.PATCH`
+version. It advances the protobufs submodule, regenerates, sets the version,
+runs the tests and example builds, then commits, tags and publishes. The
+`dry_run` input does everything except push.
+
+The workflow is split so the write scoped token is never in the same job as
+repository code: `verify` runs the scripts and builds with a read only token
+and emits a patch, and `publish` applies that patch and runs nothing but `git`
+and `gh`.
 
 ## License
 
-GPL-3.0
+GPL-3.0-only. The library carries code derived from the Meshtastic firmware.
+`src/aes-ccm.cpp` is BSD licensed code from hostap by Jouni Malinen.

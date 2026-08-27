@@ -1,22 +1,14 @@
-/**
- * @file test_main.cpp
- * @brief Basic unit tests for libmeshtastic_leaf library
- *
- * These tests can be run with PlatformIO's native test framework
- * or adapted for other testing frameworks (Unity, GoogleTest, etc.)
- */
+// Host unit tests. See README.md for how to run them.
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
-// Include library headers
 #include "MeshRegion.h"
 #include "MeshTypes.h"
 
 using namespace libmeshtastic_leaf;
 
-// Simple test framework
 static int tests_run = 0;
 static int tests_passed = 0;
 
@@ -44,10 +36,6 @@ static int tests_passed = 0;
 #define ASSERT_TRUE(x) ASSERT(x)
 #define ASSERT_FALSE(x) ASSERT(!(x))
 #define ASSERT_STREQ(a, b) ASSERT(strcmp((a), (b)) == 0)
-
-// ============================================================================
-// MeshTypes Tests
-// ============================================================================
 
 TEST(constants) {
   ASSERT_EQ(MAX_LORA_PAYLOAD_LEN, 255);
@@ -149,17 +137,14 @@ TEST(packet_header_combined_flags) {
 TEST(packet_header_is_pki) {
   PacketHeader header = {};
 
-  // PKI: channel == 0 AND to != BROADCAST
   header.channel = 0;
   header.to = 0x12345678;
   ASSERT_TRUE(header.isPKI());
 
-  // Not PKI: channel != 0
   header.channel = 1;
   header.to = 0x12345678;
   ASSERT_FALSE(header.isPKI());
 
-  // Not PKI: to == BROADCAST
   header.channel = 0;
   header.to = BROADCAST_ADDR;
   ASSERT_FALSE(header.isPKI());
@@ -172,10 +157,6 @@ TEST(mesh_packet_default) {
   ASSERT_EQ(packet.rxRssi, 0);
   ASSERT_FALSE(packet.isPKI);
 }
-
-// ============================================================================
-// MeshRegion Tests
-// ============================================================================
 
 TEST(region_us) {
   const RegionInfo *region = MeshRegion::getRegion(REGION_US);
@@ -264,7 +245,6 @@ TEST(modem_preset_wide_lora) {
       MeshRegion::getModemParams(PRESET_LONG_FAST, false);
   ModemParams params_wide = MeshRegion::getModemParams(PRESET_LONG_FAST, true);
 
-  // Wide LoRa should have larger bandwidth
   ASSERT_TRUE(params_wide.bw > params_normal.bw);
   ASSERT_TRUE(params_wide.bw > 800.0f);
 }
@@ -284,17 +264,13 @@ TEST(region_channel_calculation) {
   float freq0 = region->getChannelFrequency(0, bw);
   float freq1 = region->getChannelFrequency(1, bw);
 
-  // First channel should be near start frequency
   ASSERT_TRUE(freq0 > 902.0f && freq0 < 903.0f);
 
-  // Channel spacing should be bandwidth
+  // ponytail: encodes the current slot maths, which ignores the region
+  // profile's spacing and padding. Fix together with getChannelFrequency().
   float spacing = freq1 - freq0;
   ASSERT_TRUE(spacing >= 0.24f && spacing <= 0.26f);
 }
-
-// ============================================================================
-// Flag Mask Tests
-// ============================================================================
 
 TEST(flag_masks) {
   ASSERT_EQ(PACKET_FLAGS_HOP_LIMIT_MASK, 0x07);
@@ -303,10 +279,6 @@ TEST(flag_masks) {
   ASSERT_EQ(PACKET_FLAGS_HOP_START_MASK, 0xE0);
   ASSERT_EQ(PACKET_FLAGS_HOP_START_SHIFT, 5);
 }
-
-// ============================================================================
-// Main
-// ============================================================================
 
 int main() {
   printf("libmeshtastic_leaf Unit Tests\n");

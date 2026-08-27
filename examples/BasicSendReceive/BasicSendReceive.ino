@@ -1,38 +1,17 @@
-/**
- * @file BasicSendReceive.ino
- * @brief Basic example of sending and receiving Meshtastic packets
- *
- * This example demonstrates:
- * - Initializing the libmeshtastic_leaf library with an SX1262 radio
- * - Configuring the default channel
- * - Sending text messages
- * - Receiving and displaying messages
- *
- * Hardware requirements:
- * - ESP32 or similar board
- * - SX1262 LoRa module connected via SPI
- *
- * Pin configuration (adjust for your board):
- * - CS:   18
- * - IRQ:  26
- * - RST:  14
- * - BUSY: 33
- */
+// Transmit and receive on the default Meshtastic channel.
+// SX1262 on ESP32; adjust the pins below for your board.
 
 #include <SPI.h>
 #include <libmeshtastic_leaf.h>
 
-// Pin definitions - adjust for your hardware
 #define LORA_CS   18
 #define LORA_IRQ  26
 #define LORA_RST  14
 #define LORA_BUSY 33
 
-// Create RadioLib module and libmeshtastic_leaf instances
 SX1262 radio = new Module(LORA_CS, LORA_IRQ, LORA_RST, LORA_BUSY);
 libmeshtastic_leaf::libmeshtastic_leaf mesh;
 
-// Timing for periodic transmission
 unsigned long lastSendTime = 0;
 const unsigned long SEND_INTERVAL = 30000; // Send every 30 seconds
 
@@ -43,22 +22,17 @@ void setup() {
     Serial.println("libmeshtastic_leaf Basic Send/Receive Example");
     Serial.println("=========================================");
 
-    // Initialize SPI
     SPI.begin();
 
-    // Configure the radio using region helpers
     libmeshtastic_leaf::RadioConfig radioConfig;
     radioConfig.region = libmeshtastic_leaf::REGION_US;  // Set your region
     radioConfig.preset = libmeshtastic_leaf::PRESET_LONG_FAST;
 
-    // Get frequency and power from region (or override manually)
     radioConfig.frequency = libmeshtastic_leaf::MeshRegion::getDefaultFrequency(radioConfig.region);
     radioConfig.txPower = libmeshtastic_leaf::MeshRegion::getPowerLimit(radioConfig.region);
 
-
-    // Chip-specific bring-up is the sketch's job. The library only speaks
-    // the generic RadioLib PhysicalLayer API, so it never needs to know
-    // which radio this is.
+    // Chip specific bring-up belongs to the sketch; the library only speaks
+    // the generic RadioLib PhysicalLayer API.
     int st = radio.begin();
     if (st != RADIOLIB_ERR_NONE) {
         Serial.print("ERROR: radio.begin() failed: ");
@@ -69,27 +43,22 @@ void setup() {
     radio.setCRC(2);                  // Meshtastic requires LoRa CRC
     radio.setCurrentLimit(140.0f);
 
-    // Configure the library
     libmeshtastic_leaf::MeshConfig meshConfig;
     meshConfig.radio = radioConfig;
-    // Get node number from hardware MAC address (same method as main firmware)
     meshConfig.nodeNum = libmeshtastic_leaf::MeshNodeId::getNodeNum();
     meshConfig.hopLimit = 3;
 
-    // Initialize libmeshtastic_leaf
     if (!mesh.begin(meshConfig, &radio)) {
         Serial.println("ERROR: Failed to initialize libmeshtastic_leaf!");
         while (1) { delay(1000); }
     }
 
-    // Use the default public channel
     mesh.setDefaultChannel();
 
     Serial.println("Initialization complete!");
     Serial.print("Node number: 0x");
     Serial.println(mesh.getNodeNum(), HEX);
 
-    // Display short name (like "!1a2b")
     char shortName[5];
     libmeshtastic_leaf::MeshNodeId::getShortName(mesh.getNodeNum(), shortName);
     Serial.print("Short name: !");
@@ -108,10 +77,8 @@ void setup() {
 }
 
 void loop() {
-    // Process any incoming packets
     mesh.update();
 
-    // Check for received packets
     if (mesh.available()) {
         libmeshtastic_leaf::MeshPacket packet;
         libmeshtastic_leaf::ReceiveResult result = mesh.receive(packet);
@@ -131,10 +98,8 @@ void loop() {
             Serial.print(packet.rxSnr);
             Serial.println(" dB");
 
-            // If it's a text message, display it
             if (packet.portNum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
                 Serial.print("Message: ");
-                // Ensure null-termination
                 packet.payload[packet.payloadLen] = '\0';
                 Serial.println((char*)packet.payload);
             } else {
@@ -150,7 +115,6 @@ void loop() {
         }
     }
 
-    // Periodically send a message
     if (millis() - lastSendTime > SEND_INTERVAL) {
         lastSendTime = millis();
 

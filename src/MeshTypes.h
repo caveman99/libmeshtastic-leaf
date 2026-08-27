@@ -1,30 +1,17 @@
-/**
- * @file MeshTypes.h
- * @brief Common types and constants for Meshtastic Leaf library
- *
- * This file contains all the fundamental types, constants, and structures
- * used throughout the libmeshtastic_leaf library.
- */
 
 #pragma once
 
 #include <stddef.h>
 #include <stdint.h>
 
-// Only portnums.pb.h is reachable from the public headers. The Data message
-// itself is parsed in exactly one translation unit (MeshPacket.cpp).
+// Only portnums.pb.h is reachable from the public headers; Data is parsed in
+// exactly one translation unit (MeshPacket.cpp).
 #include "generated/meshtastic/portnums.pb.h"
 
 namespace libmeshtastic_leaf {
 
-// ============================================================================
-// Region and modem preset codes
-// ============================================================================
-//
-// These mirror RegionCode and ModemPreset from the upstream config.proto.
-// They are declared natively so that no public header of this library depends
-// on config.pb.h, which transitively pulls in device_ui.pb.h and the whole
-// device configuration schema. Values are wire contract: append only, never
+// Mirrors RegionCode and ModemPreset from upstream config.proto, declared
+// natively so no public header pulls in config.pb.h. Append only, never
 // renumber.
 
 enum RegionCode : uint8_t {
@@ -88,120 +75,74 @@ enum ModemPreset : uint8_t {
   PRESET_MEDIUM_TURBO = 16,
 };
 
-// ============================================================================
-// Constants
-// ============================================================================
-
 /// Maximum LoRa payload length per Semtech datasheets
 constexpr size_t MAX_LORA_PAYLOAD_LEN = 255;
 
-/// Meshtastic packet header length (16 bytes)
 constexpr size_t MESHTASTIC_HEADER_LENGTH = 16;
 
 /// PKI encryption overhead: auth tag (8 bytes) + extraNonce (4 bytes)
 constexpr size_t MESHTASTIC_PKC_OVERHEAD = 12;
 
-/// Maximum encrypted payload size
 constexpr size_t MAX_ENCRYPTED_PAYLOAD =
     MAX_LORA_PAYLOAD_LEN - MESHTASTIC_HEADER_LENGTH;
 
-/// Maximum plaintext payload for PKI messages
 constexpr size_t MAX_PKI_PAYLOAD =
     MAX_ENCRYPTED_PAYLOAD - MESHTASTIC_PKC_OVERHEAD;
 
-/// Broadcast address
 constexpr uint32_t BROADCAST_ADDR = 0xFFFFFFFF;
 
-/// Meshtastic sync word
 constexpr uint8_t MESHTASTIC_SYNC_WORD = 0x2B;
 
-/// Default preamble length
 constexpr uint16_t DEFAULT_PREAMBLE_LENGTH = 16;
 
-/// AES block size
 constexpr size_t AES_BLOCK_SIZE = 16;
 
-/// Curve25519 key size
 constexpr size_t CURVE25519_KEY_SIZE = 32;
 
-// ============================================================================
-// Packet Flag Masks
-// ============================================================================
-
-/// Hop limit mask (bits 0-2)
 constexpr uint8_t PACKET_FLAGS_HOP_LIMIT_MASK = 0x07;
 
-/// Want acknowledgment flag (bit 3)
 constexpr uint8_t PACKET_FLAGS_WANT_ACK_MASK = 0x08;
 
-/// Via MQTT flag (bit 4)
 constexpr uint8_t PACKET_FLAGS_VIA_MQTT_MASK = 0x10;
 
-/// Hop start mask (bits 5-7)
 constexpr uint8_t PACKET_FLAGS_HOP_START_MASK = 0xE0;
 
-/// Hop start shift amount
 constexpr uint8_t PACKET_FLAGS_HOP_START_SHIFT = 5;
-
-// ============================================================================
-// Default PSK
-// ============================================================================
 
 /// 16 bytes of the default public channel PSK (AES128)
 static const uint8_t DEFAULT_PSK[16] = {0xd4, 0xf1, 0xbb, 0x3a, 0x20, 0x29,
                                         0x07, 0x59, 0xf0, 0xbc, 0xff, 0xab,
                                         0xcf, 0x4e, 0x69, 0x01};
 
-// ============================================================================
-// Type Aliases
-// ============================================================================
-
-/// Node number type (32-bit)
 using NodeNum = uint32_t;
 
-/// Packet ID type (32-bit)
 using PacketId = uint32_t;
 
-/// Channel index type
 using ChannelIndex = uint8_t;
 
-/// Channel hash type
 using ChannelHash = uint8_t;
 
-// ============================================================================
-// Enums
-// ============================================================================
-
-/// Packet reception result
 enum class ReceiveResult {
-  OK,              ///< Packet received and decrypted successfully
-  NO_PACKET,       ///< No packet available
-  CRC_ERROR,       ///< CRC check failed
-  DECRYPT_FAILED,  ///< Decryption failed (wrong key or corrupted)
-  PKI_KEY_UNKNOWN, ///< PKI packet but sender's public key not found
-  INVALID_HEADER,  ///< Packet header invalid
-  TOO_SHORT,       ///< Packet too short
-  TOO_LONG         ///< Packet too long
+  OK,
+  NO_PACKET,
+  CRC_ERROR,
+  DECRYPT_FAILED,
+  PKI_KEY_UNKNOWN,
+  INVALID_HEADER,
+  TOO_SHORT,
+  TOO_LONG
 };
 
-/// Transmission result
 enum class SendResult {
-  OK,            ///< Packet sent successfully
-  TX_BUSY,       ///< Radio is busy transmitting
-  CHANNEL_BUSY,  ///< Channel is busy (CAD detected activity)
-  INVALID_PARAM, ///< Invalid parameter
-  TOO_LONG,      ///< Payload too long
-  NO_CHANNEL,    ///< No channel configured
-  RADIO_ERROR    ///< Radio hardware error
+  OK,
+  TX_BUSY,
+  CHANNEL_BUSY, ///< Channel is busy (CAD detected activity)
+  INVALID_PARAM,
+  TOO_LONG,
+  NO_CHANNEL,
+  RADIO_ERROR
 };
 
-// ============================================================================
-// Structures
-// ============================================================================
-
-/**
- * @brief Cryptographic key storage
- */
 struct CryptoKey {
   uint8_t bytes[32]; ///< Key bytes (up to 32 for AES256)
   int8_t length;     ///< Key length in bytes, or -1 for invalid
@@ -213,46 +154,35 @@ struct CryptoKey {
   bool isAES256() const { return length == 32; }
 };
 
-/**
- * @brief Over-the-air packet header (16 bytes)
- *
- * This structure must exactly match the wire layout when sent over the radio.
- */
 struct __attribute__((packed)) PacketHeader {
-  NodeNum to;       ///< Destination node (0xFFFFFFFF = broadcast)
-  NodeNum from;     ///< Sender node number
-  PacketId id;      ///< Packet ID
+  NodeNum to; ///< Destination node (0xFFFFFFFF = broadcast)
+  NodeNum from;
+  PacketId id;
   uint8_t flags;    ///< hop_limit(3) | want_ack(1) | via_mqtt(1) | hop_start(3)
   uint8_t channel;  ///< Channel hash (0 for PKI)
   uint8_t next_hop; ///< Last byte of next hop node
   uint8_t relay_node; ///< Last byte of relay node
 
-  /// Get hop limit from flags
   uint8_t getHopLimit() const { return flags & PACKET_FLAGS_HOP_LIMIT_MASK; }
 
-  /// Set hop limit in flags
   void setHopLimit(uint8_t limit) {
     flags = (flags & ~PACKET_FLAGS_HOP_LIMIT_MASK) |
             (limit & PACKET_FLAGS_HOP_LIMIT_MASK);
   }
 
-  /// Get hop start from flags
   uint8_t getHopStart() const {
     return (flags & PACKET_FLAGS_HOP_START_MASK) >>
            PACKET_FLAGS_HOP_START_SHIFT;
   }
 
-  /// Set hop start in flags
   void setHopStart(uint8_t start) {
     flags =
         (flags & ~PACKET_FLAGS_HOP_START_MASK) |
         ((start << PACKET_FLAGS_HOP_START_SHIFT) & PACKET_FLAGS_HOP_START_MASK);
   }
 
-  /// Check if want_ack flag is set
   bool wantAck() const { return (flags & PACKET_FLAGS_WANT_ACK_MASK) != 0; }
 
-  /// Set want_ack flag
   void setWantAck(bool ack) {
     if (ack) {
       flags |= PACKET_FLAGS_WANT_ACK_MASK;
@@ -261,33 +191,25 @@ struct __attribute__((packed)) PacketHeader {
     }
   }
 
-  /// Check if via_mqtt flag is set
   bool viaMqtt() const { return (flags & PACKET_FLAGS_VIA_MQTT_MASK) != 0; }
 
-  /// Check if this is a PKI-encrypted packet
   bool isPKI() const { return channel == 0 && to != BROADCAST_ADDR; }
 };
 
-/**
- * @brief Complete radio buffer with header and payload
- */
 struct __attribute__((packed)) RadioBuffer {
   PacketHeader header;
   uint8_t payload[MAX_LORA_PAYLOAD_LEN + 1 - sizeof(PacketHeader)];
 };
 
-/**
- * @brief Decoded mesh packet (after decryption)
- */
 struct MeshPacket {
-  PacketHeader header;                    ///< Packet header
-  meshtastic_PortNum portNum;             ///< Application port number
-  uint8_t payload[MAX_ENCRYPTED_PAYLOAD]; ///< Decrypted payload
-  size_t payloadLen;                      ///< Payload length
-  int16_t rxRssi;                         ///< Received signal strength (dBm)
-  float rxSnr;                            ///< Signal-to-noise ratio (dB)
-  uint32_t rxTime;                        ///< Reception timestamp (millis)
-  bool isPKI;                             ///< True if PKI-encrypted
+  PacketHeader header;
+  meshtastic_PortNum portNum;
+  uint8_t payload[MAX_ENCRYPTED_PAYLOAD];
+  size_t payloadLen;
+  int16_t rxRssi;            ///< Received signal strength (dBm)
+  float rxSnr;               ///< Signal-to-noise ratio (dB)
+  uint32_t rxTime;           ///< Reception timestamp (millis)
+  bool isPKI;                ///< True if PKI-encrypted
   ChannelIndex channelIndex; ///< Channel index (for channel-encrypted)
 
   MeshPacket()
@@ -298,23 +220,16 @@ struct MeshPacket {
   }
 };
 
-/**
- * @brief Radio configuration structure
- */
 struct RadioConfig {
-  RegionCode region;  ///< Region code (for frequency/power lookup)
-  float frequency;    ///< Center frequency in MHz (0 = auto from region)
-  int8_t txPower;     ///< Transmit power in dBm (0 = auto from region)
-  ModemPreset preset; ///< Modem preset
-
+  RegionCode region; ///< Region code (for frequency/power lookup)
+  float frequency;   ///< Center frequency in MHz (0 = auto from region)
+  int8_t txPower;    ///< Transmit power in dBm (0 = auto from region)
+  ModemPreset preset;
   RadioConfig()
       : region(REGION_US), frequency(0.0f), txPower(0),
         preset(PRESET_LONG_FAST) {}
 };
 
-/**
- * @brief Library configuration structure
- */
 struct MeshConfig {
   RadioConfig radio; ///< Radio configuration
   NodeNum nodeNum;   ///< This node's number
@@ -323,25 +238,8 @@ struct MeshConfig {
   MeshConfig() : nodeNum(0), hopLimit(3) {}
 };
 
-// Note: ModemParams is now defined in MeshRegion.h
-// Use MeshRegion::getModemParams(preset) to get parameters for a preset
-
-// ============================================================================
-// Callback Types
-// ============================================================================
-
-/**
- * @brief Callback for looking up a node's public key for PKI decryption
- * @param nodeNum The node number to look up
- * @param pubKey Output buffer for the 32-byte public key
- * @return true if the key was found, false otherwise
- */
 using PKIKeyLookup = bool (*)(NodeNum nodeNum, uint8_t pubKey[32]);
 
-/**
- * @brief Callback for received packets
- * @param packet The received and decoded packet
- */
 using PacketCallback = void (*)(const MeshPacket &packet);
 
 } // namespace libmeshtastic_leaf

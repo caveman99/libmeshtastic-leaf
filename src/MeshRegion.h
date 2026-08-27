@@ -1,14 +1,3 @@
-/**
- * @file MeshRegion.h
- * @brief Region and modem preset helpers
- *
- * This file provides helper functions and lookup tables for:
- * - Region-specific frequency parameters
- * - Modem preset parameters (SF, BW, CR)
- *
- * Region and preset codes come from MeshTypes.h; see the note there on why
- * they are declared natively rather than taken from config.pb.h.
- */
 
 #pragma once
 
@@ -17,15 +6,6 @@
 
 namespace libmeshtastic_leaf {
 
-// ============================================================================
-// Structures
-// ============================================================================
-
-/**
- * @brief Region information structure
- *
- * Contains all regulatory parameters for a given region.
- */
 struct RegionInfo {
   RegionCode code;     ///< Region code
   float freqStart;     ///< Start frequency in MHz
@@ -38,133 +18,49 @@ struct RegionInfo {
   bool wideLora;       ///< 2.4GHz wide LoRa mode
   const char *name;    ///< Region name string
 
-  /**
-   * @brief Get the default frequency for this region
-   *
-   * Returns the first channel center frequency based on the default
-   * LONG_FAST bandwidth of 250 kHz.
-   */
   float getDefaultFrequency() const {
     return freqStart + 0.125f; // BW/2 = 250/2/1000 = 0.125 MHz
   }
 
-  /**
-   * @brief Get the number of channels available
-   *
-   * @param bandwidth Bandwidth in kHz
-   * @return Number of channels
-   */
   uint32_t getNumChannels(float bandwidth) const {
     return (uint32_t)((freqEnd - freqStart) /
                       (spacing / 1000.0f + bandwidth / 1000.0f));
   }
 
-  /**
-   * @brief Calculate channel frequency
-   *
-   * @param channelNum Channel number (0-based)
-   * @param bandwidth Bandwidth in kHz
-   * @return Channel center frequency in MHz
-   */
   float getChannelFrequency(uint32_t channelNum, float bandwidth) const {
     return freqStart + (bandwidth / 2000.0f) +
            (channelNum * (bandwidth / 1000.0f));
   }
 };
 
-/**
- * @brief Modem parameters for a preset
- */
 struct ModemParams {
   uint8_t sf; ///< Spreading factor (7-12)
   float bw;   ///< Bandwidth in kHz
   uint8_t cr; ///< Coding rate (5-8, represents 4/5 to 4/8)
 };
 
-// ============================================================================
-// Region Lookup Class
-// ============================================================================
-
-/**
- * @brief Region and modem preset lookup utilities
- */
 class MeshRegion {
 public:
-  /**
-   * @brief Get region information by code
-   *
-   * @param code Region code
-   * @return Pointer to RegionInfo, or nullptr if not found
-   */
   static const RegionInfo *getRegion(RegionCode code);
 
-  /**
-   * @brief Get region name string
-   *
-   * @param code Region code
-   * @return Region name, or "UNKNOWN" if not found
-   */
   static const char *getRegionName(RegionCode code);
 
-  /**
-   * @brief Get default frequency for a region
-   *
-   * Returns the first channel center frequency using LONG_FAST bandwidth.
-   *
-   * @param code Region code
-   * @return Frequency in MHz, or 0.0 if region not found
-   */
   static float getDefaultFrequency(RegionCode code);
 
-  /**
-   * @brief Get power limit for a region
-   *
-   * @param code Region code
-   * @return Power limit in dBm, or 0 if region not found
-   */
   static int8_t getPowerLimit(RegionCode code);
 
-  /**
-   * @brief Check if a region uses 2.4GHz (wide LoRa)
-   *
-   * @param code Region code
-   * @return true if 2.4GHz region
-   */
   static bool isWideLoRa(RegionCode code);
 
-  /**
-   * @brief Get modem parameters for a preset
-   *
-   * @param preset Modem preset
-   * @param wideLora true for 2.4GHz regions (uses different bandwidths)
-   * @return Modem parameters
-   */
   static ModemParams getModemParams(ModemPreset preset, bool wideLora = false);
 
-  /**
-   * @brief Get preset name string
-   *
-   * @param preset Modem preset
-   * @return Preset name
-   */
   static const char *getPresetName(ModemPreset preset);
 
-  /**
-   * @brief Get all region codes
-   *
-   * @param count Output: number of regions
-   * @return Pointer to array of RegionInfo
-   */
   static const RegionInfo *getAllRegions(size_t &count);
 };
 
-// ============================================================================
-// Implementation
-// ============================================================================
-
 namespace detail {
 
-// Region table matching main firmware (RadioInterface.cpp)
+// Mirrors the region table in the firmware's RadioInterface.cpp.
 static const RegionInfo REGIONS[] = {
     // code,        freqStart,  freqEnd,  duty, space, power, audio, fhop, wide,
     // name
@@ -237,7 +133,7 @@ inline ModemParams MeshRegion::getModemParams(ModemPreset preset,
                                               bool wideLora) {
   ModemParams p;
 
-  // Bandwidth values differ for 2.4GHz wide LoRa mode
+  // 2.4 GHz wide LoRa uses different bandwidths.
   switch (preset) {
   case PRESET_SHORT_TURBO:
     p.sf = 7;

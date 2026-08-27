@@ -1,18 +1,3 @@
-/**
- * @file MeshNodeId.h
- * @brief Hardware-based node ID generation utilities
- *
- * This file provides platform-specific functions to obtain a unique node
- * number from hardware identifiers (MAC address, device ID, etc.), similar
- * to how the main Meshtastic firmware generates node IDs.
- *
- * Supported platforms:
- * - ESP32/ESP32-S2/ESP32-S3/ESP32-C3/ESP32-C6
- * - nRF52840/nRF52832
- * - RP2040/RP2350
- * - STM32WL
- * - Generic (uses random if no hardware ID available)
- */
 
 #pragma once
 
@@ -20,78 +5,25 @@
 #include <stdint.h>
 
 #if defined(ARDUINO)
-// the platform branches below call micros() and friends directly, so this
-// header has to pull Arduino.h in itself rather than rely on the sketch
+// The platform branches below call micros() directly, so pull Arduino.h in
+// here rather than rely on the sketch having included it.
 #include <Arduino.h>
 #endif
 
 namespace libmeshtastic_leaf {
 
-/**
- * @brief Hardware node ID utilities
- *
- * Provides methods to obtain unique identifiers from hardware.
- */
 class MeshNodeId {
 public:
-  /**
-   * @brief Get the hardware MAC address
-   *
-   * Retrieves the 6-byte MAC address or device identifier from the
-   * hardware. On platforms without a MAC address, this may return
-   * a unique device ID or a pseudo-random value.
-   *
-   * @param mac Output buffer for 6-byte MAC address
-   */
   static void getMacAddr(uint8_t mac[6]);
 
-  /**
-   * @brief Generate a node number from hardware
-   *
-   * Creates a 32-bit node number derived from the hardware MAC address,
-   * using the same algorithm as the main Meshtastic firmware:
-   * `(mac[2] << 24) | (mac[3] << 16) | (mac[4] << 8) | mac[5]`
-   *
-   * This ensures that the node number is likely to be unique and
-   * consistent across reboots.
-   *
-   * @return 32-bit node number
-   */
   static NodeNum getNodeNum();
 
-  /**
-   * @brief Generate a node number from a provided MAC address
-   *
-   * @param mac 6-byte MAC address
-   * @return 32-bit node number
-   */
   static NodeNum nodeNumFromMac(const uint8_t mac[6]);
 
-  /**
-   * @brief Get the short form of a node number
-   *
-   * Returns the last 4 hex characters of the node number as a string,
-   * useful for display purposes (e.g., "!1234").
-   *
-   * @param nodeNum Node number
-   * @param buffer Output buffer (must be at least 5 bytes)
-   */
   static void getShortName(NodeNum nodeNum, char *buffer);
 
-  /**
-   * @brief Get the last byte of a node number
-   *
-   * Used for relay_node and next_hop fields in packet headers.
-   *
-   * @param nodeNum Node number
-   * @return Last byte of node number
-   */
   static uint8_t getLastByte(NodeNum nodeNum) { return nodeNum & 0xFF; }
 };
-
-// ============================================================================
-// Platform-specific implementations
-// ============================================================================
 
 #if defined(ARDUINO)
 
@@ -112,7 +44,6 @@ inline void MeshNodeId::getMacAddr(uint8_t mac[6]) {
 #elif defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52)
 
 inline void MeshNodeId::getMacAddr(uint8_t mac[6]) {
-  // nRF52 stores device address in FICR registers
   const uint8_t *src = (const uint8_t *)0x100000A4; // NRF_FICR->DEVICEADDR
   mac[5] = src[0];
   mac[4] = src[1];
@@ -129,7 +60,6 @@ inline void MeshNodeId::getMacAddr(uint8_t mac[6]) {
 inline void MeshNodeId::getMacAddr(uint8_t mac[6]) {
   pico_unique_board_id_t boardId;
   pico_get_unique_board_id(&boardId);
-  // Use last 6 bytes of 8-byte unique ID
   mac[5] = boardId.id[7];
   mac[4] = boardId.id[6];
   mac[3] = boardId.id[5];
@@ -142,8 +72,7 @@ inline void MeshNodeId::getMacAddr(uint8_t mac[6]) {
 #elif defined(STM32WLxx) || defined(ARDUINO_ARCH_STM32)
 
 inline void MeshNodeId::getMacAddr(uint8_t mac[6]) {
-  // STM32 has a 96-bit unique device ID at specific addresses
-  // Using the last 48 bits (6 bytes)
+  // Last 48 bits of the 96-bit unique device ID.
   const uint32_t *uid =
       (const uint32_t *)0x1FFF7590; // UID base address for STM32WL
   mac[0] = (uid[0] >> 0) & 0xFF;
@@ -158,9 +87,8 @@ inline void MeshNodeId::getMacAddr(uint8_t mac[6]) {
 #else
 
 inline void MeshNodeId::getMacAddr(uint8_t mac[6]) {
-  // No hardware ID available - generate pseudo-random based on time
-  // This is NOT ideal as it won't be consistent across reboots
-  // Users should provide their own node number in this case
+  // No hardware ID here, so this is not stable across reboots. Callers on
+  // such a platform should supply their own node number.
   uint32_t seed = micros();
   mac[0] = 0x02; // Locally administered MAC
   mac[1] = (seed >> 24) & 0xFF;
@@ -175,8 +103,7 @@ inline void MeshNodeId::getMacAddr(uint8_t mac[6]) {
 #else // Non-Arduino environment
 
 inline void MeshNodeId::getMacAddr(uint8_t mac[6]) {
-  // Non-Arduino: User must implement or provide their own node number
-  // Fill with placeholder that indicates manual configuration needed
+  // Placeholder; a non-Arduino host must supply its own node number.
   mac[0] = 0x02;
   mac[1] = 0x00;
   mac[2] = 0x00;
@@ -187,13 +114,8 @@ inline void MeshNodeId::getMacAddr(uint8_t mac[6]) {
 
 #endif // ARDUINO
 
-// ============================================================================
-// Platform-independent implementations
-// ============================================================================
-
 inline NodeNum MeshNodeId::nodeNumFromMac(const uint8_t mac[6]) {
-  // Use last 4 bytes of MAC address to create node number
-  // Same algorithm as main Meshtastic firmware
+  // Last 4 bytes of the MAC, same as the firmware.
   return ((uint32_t)mac[2] << 24) | ((uint32_t)mac[3] << 16) |
          ((uint32_t)mac[4] << 8) | ((uint32_t)mac[5]);
 }
@@ -205,7 +127,6 @@ inline NodeNum MeshNodeId::getNodeNum() {
 }
 
 inline void MeshNodeId::getShortName(NodeNum nodeNum, char *buffer) {
-  // Format: last 4 hex digits (e.g., "1a2b")
   const char hex[] = "0123456789abcdef";
   buffer[0] = hex[(nodeNum >> 12) & 0xF];
   buffer[1] = hex[(nodeNum >> 8) & 0xF];

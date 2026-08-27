@@ -1,35 +1,21 @@
-/**
- * @file TextMessaging.ino
- * @brief Text messaging example with custom channel
- *
- * This example demonstrates:
- * - Setting up a custom channel with a specific PSK
- * - Sending direct messages to specific nodes
- * - Handling received text messages
- * - Serial interface for user input
- *
- * Hardware: ESP32 with SX1262
- */
+// Messaging on a custom channel with its own PSK.
+// SX1262 on ESP32; adjust the pins below for your board.
 
 #include <SPI.h>
 #include <libmeshtastic_leaf.h>
 
-// Pin definitions - adjust for your hardware
 #define LORA_CS   18
 #define LORA_IRQ  26
 #define LORA_RST  14
 #define LORA_BUSY 33
 
-// Create instances
 SX1262 radio = new Module(LORA_CS, LORA_IRQ, LORA_RST, LORA_BUSY);
 libmeshtastic_leaf::libmeshtastic_leaf mesh;
 
-// Serial input buffer
 char inputBuffer[200];
 int inputPos = 0;
 
-// Custom channel PSK (256-bit / 32 bytes for AES256)
-// In a real application, use a secure random key!
+// Demo AES256 PSK. Use a securely generated key in a real application.
 const uint8_t myChannelPSK[] = {
     0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
     0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
@@ -46,14 +32,13 @@ void setup() {
 
     SPI.begin();
 
-    // Configure radio using region helpers
     libmeshtastic_leaf::RadioConfig radioConfig;
     radioConfig.region = libmeshtastic_leaf::REGION_US;  // Set your region
     radioConfig.preset = libmeshtastic_leaf::PRESET_LONG_FAST;
     radioConfig.frequency = libmeshtastic_leaf::MeshRegion::getDefaultFrequency(radioConfig.region);
     radioConfig.txPower = libmeshtastic_leaf::MeshRegion::getPowerLimit(radioConfig.region);
 
-    // Chip-specific bring-up is the sketch's job. The library only speaks
+    // Chip specific bring-up belongs to the sketch; the library only speaks
     // the generic RadioLib PhysicalLayer API.
     int st = radio.begin();
     if (st != RADIOLIB_ERR_NONE) {
@@ -65,10 +50,8 @@ void setup() {
     radio.setCRC(2);                  // Meshtastic requires LoRa CRC
     radio.setCurrentLimit(140.0f);
 
-    // Configure mesh
     libmeshtastic_leaf::MeshConfig meshConfig;
     meshConfig.radio = radioConfig;
-    // Get node number from hardware MAC address
     meshConfig.nodeNum = libmeshtastic_leaf::MeshNodeId::getNodeNum();
     meshConfig.hopLimit = 3;
 
@@ -77,7 +60,6 @@ void setup() {
         while (1) delay(1000);
     }
 
-    // Set up custom channel with AES256 encryption
     mesh.setChannel(myChannelPSK, sizeof(myChannelPSK), "MyChannel");
 
     Serial.println("Ready!");
@@ -96,9 +78,7 @@ void setup() {
 void processCommand(const char* input) {
     if (strlen(input) == 0) return;
 
-    // Check for direct message format: @NODEID message
     if (input[0] == '@') {
-        // Parse node ID
         char* space = strchr(input, ' ');
         if (space && (space - input) > 1) {
             char nodeIdStr[16];
@@ -130,7 +110,6 @@ void processCommand(const char* input) {
         return;
     }
 
-    // Broadcast message
     Serial.print("Broadcasting: ");
     Serial.println(input);
 
@@ -163,15 +142,12 @@ void handleReceivedPacket() {
 }
 
 void loop() {
-    // Process radio events
     mesh.update();
 
-    // Handle received packets
     while (mesh.available()) {
         handleReceivedPacket();
     }
 
-    // Handle serial input
     while (Serial.available()) {
         char c = Serial.read();
 
