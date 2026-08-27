@@ -6,6 +6,7 @@
 #include "MeshCryptoPKI.h"
 #include "MeshNodeId.h"
 #include "MeshPacket.h"
+#include "MeshPacketHistory.h"
 #include "MeshRegion.h"
 #include "MeshTypes.h"
 
@@ -62,6 +63,13 @@ public:
 
   void setCarrierSense(bool enabled, uint8_t cwMin = 3, uint8_t cwMax = 8);
 
+  // Attempts for a want_ack send, counting the first. The firmware uses 3 for
+  // broadcast and 5 for unicast. One disables retransmission.
+  void setReliableAttempts(uint8_t broadcast, uint8_t unicast);
+
+  // A send awaiting an ack is still outstanding.
+  bool hasPendingAck() const { return pending_.attemptsLeft > 0; }
+
   NodeNum getNodeNum() const { return config_.nodeNum; }
   PhysicalLayer *getRadio() { return phy_; }
   MeshChannel &getChannel() { return channel_; }
@@ -70,8 +78,26 @@ public:
 private:
   enum class TxState { IDLE, BACKOFF, SENDING };
 
+  struct PendingTx {
+    PacketId id;
+    NodeNum to;
+    uint8_t attemptsLeft;
+    uint32_t nextTxMsec;
+    uint32_t airtimeMsec;
+    size_t len;
+    uint8_t buffer[MAX_LORA_PAYLOAD_LEN];
+  };
+
   bool applyRfConfig();
   const char *resolveChannelName(const char *name) const;
+  uint32_t retransmissionDelayMsec(uint32_t airtimeMsec) const;
+  void startRetransmission(const uint8_t *frame, size_t len, PacketId id,
+                           NodeNum to, uint32_t airtimeMsec);
+  void stopRetransmission();
+  void deferPendingAck(uint32_t airtimeMsec);
+  void serviceRetransmission();
+  // Header only, so it works on packets this node cannot decrypt.
+  bool filterReceived(uint32_t nowMsec);
   void serviceTx();
   void finishTx();
   uint32_t computeSlotTimeMsec() const;
@@ -94,6 +120,10 @@ private:
   float lastSnr_;
 
   MeshAirtime airtime_;
+  MeshPacketHistory history_;
+  PendingTx pending_;
+  uint8_t reliableBroadcastAttempts_;
+  uint8_t reliableUnicastAttempts_;
   SendResult lastSendResult_;
   float dutyCycleLimit_;
   bool carrierSense_;

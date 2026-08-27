@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "MeshAirtime.h"
+#include "MeshPacketHistory.h"
 #include "MeshRegion.h"
 #include "MeshTypes.h"
 
@@ -483,12 +484,97 @@ TEST(eu_n_868_narrow_slots) {
   ASSERT_EQ(eun->numSlots(62.5f), 3u);
 }
 
+TEST(history_first_sighting_is_not_a_duplicate) {
+  MeshPacketHistory h;
+  ASSERT_FALSE(h.wasSeen(0x1234u, 0xAAAAu, 1000));
+  ASSERT_TRUE(h.wasSeen(0x1234u, 0xAAAAu, 1000));
+}
+
+TEST(history_distinguishes_sender_and_id) {
+  MeshPacketHistory h;
+  h.wasSeen(0x1234u, 0xAAAAu, 1000);
+  // Same id from a different node is a different packet.
+  ASSERT_FALSE(h.wasSeen(0x5678u, 0xAAAAu, 1000));
+  // Same node, different id.
+  ASSERT_FALSE(h.wasSeen(0x1234u, 0xBBBBu, 1000));
+}
+
+TEST(history_peek_does_not_record) {
+  MeshPacketHistory h;
+  ASSERT_FALSE(h.wasSeen(1u, 1u, 1000, false));
+  ASSERT_FALSE(h.wasSeen(1u, 1u, 1000, false));
+}
+
+TEST(history_evicts_the_oldest) {
+  MeshPacketHistory h;
+  // Fill every slot, oldest first.
+  for (uint8_t i = 0; i < MeshPacketHistory::CAPACITY; i++) {
+    h.wasSeen(100u + i, 1u, 1000 + i);
+  }
+  // Everything is still known.
+  ASSERT_TRUE(h.wasSeen(100u, 1u, 2000, false));
+
+  // One more evicts the oldest, which is the entry stamped 1000. Refreshing
+  // it above would defeat the test, so peek was used.
+  h.wasSeen(999u, 1u, 3000);
+  ASSERT_FALSE(h.wasSeen(100u, 1u, 3000, false));
+  ASSERT_TRUE(h.wasSeen(999u, 1u, 3000, false));
+}
+
+TEST(history_survives_millis_rollover) {
+  MeshPacketHistory h;
+  // Stamped just before the 32 bit wrap.
+  h.wasSeen(1u, 1u, 0xFFFFFF00u);
+  // Now just after it. Unsigned subtraction has to keep this recognisable.
+  ASSERT_TRUE(h.wasSeen(1u, 1u, 0x00000100u, false));
+}
+
+TEST(history_evicts_by_age_across_the_rollover) {
+  MeshPacketHistory h;
+
+  // One entry from just before the wrap, so it holds a huge raw timestamp
+  // while actually being the oldest.
+  h.wasSeen(0xDEADu, 0xBEEFu, 0xFFFFFF00u);
+
+  // Fill the rest with entries from just after the wrap, all of them newer.
+  for (uint8_t i = 1; i < MeshPacketHistory::CAPACITY; i++) {
+    h.wasSeen(200u + i, 1u, 0x00000200u + i);
+  }
+
+  // Inserting now must evict the pre-wrap entry, the genuinely oldest one.
+  // Comparing raw timestamps would evict a post-wrap entry instead, because
+  // those are numerically smaller.
+  const uint32_t now = 0x00001000u;
+  h.wasSeen(0xFEEDu, 1u, now);
+
+  ASSERT_FALSE(h.wasSeen(0xDEADu, 0xBEEFu, now, false));
+  ASSERT_TRUE(h.wasSeen(201u, 1u, now, false));
+  ASSERT_TRUE(h.wasSeen(0xFEEDu, 1u, now, false));
+}
+
+TEST(history_clear_forgets_everything) {
+  MeshPacketHistory h;
+  h.wasSeen(1u, 1u, 1000);
+  h.clear();
+  ASSERT_FALSE(h.wasSeen(1u, 1u, 1000, false));
+}
+
 int main() {
   printf("libmeshtastic_leaf Unit Tests\n");
   printf("=========================\n\n");
 
   printf("MeshTypes Tests:\n");
   printf("MeshAirtime Tests:\n");
+  printf("MeshPacketHistory Tests:\n");
+  RUN_TEST(history_first_sighting_is_not_a_duplicate);
+  RUN_TEST(history_distinguishes_sender_and_id);
+  RUN_TEST(history_peek_does_not_record);
+  RUN_TEST(history_evicts_the_oldest);
+  RUN_TEST(history_survives_millis_rollover);
+  RUN_TEST(history_evicts_by_age_across_the_rollover);
+  RUN_TEST(history_clear_forgets_everything);
+
+  printf("\nMeshAirtime Tests:\n");
   RUN_TEST(airtime_starts_empty);
   RUN_TEST(airtime_tx_counts_towards_duty_cycle);
   RUN_TEST(airtime_rx_excluded_from_duty_cycle);

@@ -20,7 +20,9 @@ libmeshtastic_leaf::libmeshtastic_leaf()
       lastSnr_(0.0f), lastSendResult_(SendResult::OK), dutyCycleLimit_(100.0f),
       carrierSense_(true), cwMin_(3), cwMax_(8), slotTimeMsec_(0),
       txState_(TxState::IDLE), txLen_(0), txAirtimeMsec_(0),
-      backoffUntilMsec_(0), txDeadlineMsec_(0) {
+      backoffUntilMsec_(0), txDeadlineMsec_(0), reliableBroadcastAttempts_(3),
+      reliableUnicastAttempts_(5) {
+  memset(&pending_, 0, sizeof(pending_));
   memset(rxBuffer_, 0, sizeof(rxBuffer_));
 }
 
@@ -42,6 +44,8 @@ bool libmeshtastic_leaf::begin(const MeshConfig &config, PhysicalLayer *phy) {
 
   slotTimeMsec_ = computeSlotTimeMsec();
   airtime_.reset(millis());
+  history_.clear();
+  stopRetransmission();
   txState_ = TxState::IDLE;
 
   const RegionInfo *region = MeshRegion::getRegion(config_.radio.region);
@@ -249,6 +253,12 @@ uint32_t libmeshtastic_leaf::sendPacket(PacketHeader &header,
   memcpy(txBuffer_, txBuffer, txLen);
   txLen_ = txLen;
   txAirtimeMsec_ = airMsec;
+  if (header.wantAck()) {
+    startRetransmission(txBuffer, txLen, header.id, header.to, airMsec);
+  } else {
+    stopRetransmission();
+  }
+  deferPendingAck(airMsec);
   backoffUntilMsec_ = millis() + computeBackoffMsec();
   txState_ = TxState::BACKOFF;
   lastSendResult_ = SendResult::OK;
@@ -328,6 +338,107 @@ void libmeshtastic_leaf::finishTx() {
   phy_->startReceive();
 }
 
+void libmeshtastic_leaf::setReliableAttempts(uint8_t broadcast,
+                                             uint8_t unicast) {
+  reliableBroadcastAttempts_ = broadcast;
+  reliableUnicastAttempts_ = unicast;
+}
+
+// Long enough for the packet to be relayed and an ack to come back, per the
+// firmware: twice the airtime, a spread of contention slots, and the time a
+// node needs to turn a packet around.
+uint32_t
+libmeshtastic_leaf::retransmissionDelayMsec(uint32_t airtimeMsec) const {
+  float util = airtime_.channelUtilizationPercent();
+  if (util > 100.0f) {
+    util = 100.0f;
+  }
+  const uint8_t cw = cwMin_ + (uint8_t)((util / 100.0f) * (cwMax_ - cwMin_));
+  const uint32_t slots =
+      (1UL << cw) + (2UL * cwMax_) + (1UL << ((cwMax_ + cwMin_) / 2));
+  return (2UL * airtimeMsec) + (slots * slotTimeMsec_) + PROCESSING_TIME_MSEC;
+}
+
+void libmeshtastic_leaf::startRetransmission(const uint8_t *frame, size_t len,
+                                             PacketId id, NodeNum to,
+                                             uint32_t airtimeMsec) {
+  const uint8_t attempts = (to == BROADCAST_ADDR) ? reliableBroadcastAttempts_
+                                                  : reliableUnicastAttempts_;
+  if (attempts <= 1 || len > sizeof(pending_.buffer)) {
+    return;
+  }
+
+  memcpy(pending_.buffer, frame, len);
+  pending_.len = len;
+  pending_.id = id;
+  pending_.to = to;
+  pending_.airtimeMsec = airtimeMsec;
+  pending_.attemptsLeft = attempts - 1;
+  pending_.nextTxMsec = millis() + retransmissionDelayMsec(airtimeMsec);
+}
+
+void libmeshtastic_leaf::stopRetransmission() { pending_.attemptsLeft = 0; }
+
+// While the radio is busy with another packet an ack cannot arrive, so push
+// the retry out by that packet's airtime rather than retrying too early.
+void libmeshtastic_leaf::deferPendingAck(uint32_t airtimeMsec) {
+  if (pending_.attemptsLeft > 0) {
+    pending_.nextTxMsec += airtimeMsec;
+  }
+}
+
+void libmeshtastic_leaf::serviceRetransmission() {
+  if (pending_.attemptsLeft == 0 || txState_ != TxState::IDLE) {
+    return;
+  }
+  if ((int32_t)(millis() - pending_.nextTxMsec) < 0) {
+    return;
+  }
+  if (dutyCycleLimit_ < 100.0f) {
+    airtime_.advance(millis());
+    const float wouldBe =
+        (float)(airtime_.txMsecLastHour() + pending_.airtimeMsec) * 100.0f /
+        (float)MeshAirtime::MSEC_PER_HOUR;
+    if (wouldBe > dutyCycleLimit_) {
+      stopRetransmission();
+      return;
+    }
+  }
+
+  memcpy(txBuffer_, pending_.buffer, pending_.len);
+  txLen_ = pending_.len;
+  txAirtimeMsec_ = pending_.airtimeMsec;
+  backoffUntilMsec_ = millis() + computeBackoffMsec();
+  txState_ = TxState::BACKOFF;
+
+  pending_.attemptsLeft--;
+  pending_.nextTxMsec =
+      millis() + retransmissionDelayMsec(pending_.airtimeMsec);
+}
+
+// Runs on the raw header, before any decryption, so it also covers packets
+// this node has no key for.
+bool libmeshtastic_leaf::filterReceived(uint32_t nowMsec) {
+  PacketHeader header;
+  MeshPacketCodec::unpackHeader(rxBuffer_, header);
+
+  // Hearing our own packet relayed proves it reached the mesh, which is the
+  // implicit ack. The header alone identifies it.
+  if (header.from == config_.nodeNum) {
+    if (pending_.attemptsLeft > 0 && pending_.id == header.id) {
+      stopRetransmission();
+    }
+    return true;
+  }
+
+  if (history_.wasSeen(header.from, header.id, nowMsec)) {
+    return true;
+  }
+
+  deferPendingAck(phy_->getTimeOnAir(rxLen_) / 1000);
+  return false;
+}
+
 Airtime libmeshtastic_leaf::getAirtime() {
   airtime_.advance(millis());
   Airtime out;
@@ -357,6 +468,7 @@ void libmeshtastic_leaf::update() {
   }
 
   serviceTx();
+  serviceRetransmission();
 
   if (txState_ != TxState::IDLE) {
     return;
@@ -374,8 +486,15 @@ void libmeshtastic_leaf::update() {
       rxLen_ = len;
       lastRssi_ = phy_->getRSSI();
       lastSnr_ = phy_->getSNR();
-      rxPending_ = true;
       airtime_.logRx(millis(), phy_->getTimeOnAir(len) / 1000);
+
+      if (filterReceived(millis())) {
+        rxLen_ = 0;
+        phy_->startReceive();
+        return;
+      }
+
+      rxPending_ = true;
 
       if (receiveCallback_ != nullptr) {
         MeshPacket packet;

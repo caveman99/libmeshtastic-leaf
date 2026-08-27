@@ -12,10 +12,12 @@ two sits, and what this library deliberately does not do.
 
 Working: packet framing, channel (PSK) encryption, PKI encryption, region and
 preset tables, `Data` payload encoding, carrier sense with a contention window,
-airtime accounting and duty cycle limiting.
+airtime accounting, duty cycle limiting, duplicate suppression, and
+retransmission with implicit acknowledgement.
 
-Not implemented yet: duplicate suppression, acknowledgement and
-retransmission, and dwell time limiting.
+Not implemented yet: explicit acknowledgements, which need the `Routing`
+message, so a direct message is only confirmed when the packet is overheard
+being relayed. No dwell time limiting.
 
 ## Installation
 
@@ -154,6 +156,25 @@ it is busy.
 What stays with the application: choosing the region, deciding whether the
 operator is licensed or otherwise exempt, and what to do about a refused send,
 whether that is dropping it, queueing it or trying later.
+
+### Duplicates and retransmission
+
+A flooded packet arrives once for every neighbour that relays it. The library
+records the sender and id of everything it hears and delivers each packet once,
+so the application never sees the copies. The table holds 32 entries and reuses
+the oldest, so the window is how many packets fit rather than how old they are.
+
+Sending with `wantAck` arms a retransmission: three attempts for a broadcast
+and five for a direct message, the same as the firmware, spaced far enough
+apart for the packet to be relayed and an answer to come back. Hearing the
+packet relayed by someone else is the implicit acknowledgement and stops the
+chain. That check is made on the header alone, so it works for a direct message
+this node cannot decrypt. Receiving or sending anything else pushes the retry
+out by that packet's airtime, since an acknowledgement cannot arrive while the
+radio is busy.
+
+A retransmission is dropped rather than deferred if it would breach the duty
+cycle limit.
 
 ### Receiving
 

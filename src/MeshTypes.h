@@ -95,6 +95,9 @@ constexpr uint8_t MESHTASTIC_SYNC_WORD = 0x2B;
 
 constexpr uint16_t DEFAULT_PREAMBLE_LENGTH = 16;
 
+/// Time a node needs to receive a packet and turn a reply around, empirical.
+constexpr uint32_t PROCESSING_TIME_MSEC = 4500;
+
 constexpr size_t AES_BLOCK_SIZE = 16;
 
 constexpr size_t CURVE25519_KEY_SIZE = 32;

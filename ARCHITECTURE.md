@@ -51,6 +51,7 @@ Only then does it hand the radio to `begin(config, &radio)`.
 | PKI            | X25519 to SHA256 to AES-256-CCM, and the 12 byte wire overhead                                     |
 | Payload        | `Data` encoding and decoding, portnum dispatch                                                     |
 | MAC            | carrier sense, contention window, airtime accounting, duty cycle gate                              |
+| Reliability    | duplicate suppression, retransmission, implicit acknowledgement                                    |
 
 ### Not a leaf, never port these
 
@@ -60,8 +61,34 @@ state machine, configuration persistence, admin messages.
 
 ### Still missing
 
-Duplicate suppression, acknowledgement and retransmission, and dwell time
-limiting. See the status section in [README.md](README.md).
+Explicit acknowledgements and dwell time limiting. See the status section in
+[README.md](README.md).
+
+## Duplicates and acknowledgement
+
+Two structures, not one. A receive side table keyed on sender and id records
+everything heard, so a flooded packet is delivered once. A single pending send
+holds the frame of a `wantAck` transmission awaiting an answer. They hold
+different sets: the first covers every node, the second only this one.
+
+They meet at the implicit acknowledgement. Hearing our own packet relayed is a
+sighting of sender and id where the sender is us, so the receive path is what
+detects it, and it stops the pending retransmission. The check uses the header
+alone, which means it also covers a direct message this node originated and
+cannot decrypt.
+
+Retry spacing follows the firmware: twice the airtime, a spread of contention
+slots, and a turnaround allowance. Anything sent or received in the meantime
+pushes the retry out by that packet's airtime, because an acknowledgement
+cannot arrive while the radio is busy with something else.
+
+An explicit acknowledgement is a `ROUTING_APP` packet carrying `Routing` with
+an error reason, and `Data.request_id` set to the original packet id. That
+needs the `Routing` message, which shares a oneof with `RouteDiscovery` in
+mesh.proto, so generating it means teaching the descriptor trimmer to take a
+list of messages and follow references within a file. Answering one also means
+a received packet triggers a transmission, which the single transmit slot has
+no priority scheme for.
 
 ## Frequency slots
 
