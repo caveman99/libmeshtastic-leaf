@@ -5,16 +5,16 @@
   "keywords": "meshtastic, lora, mesh, radio, leaf, iot",
   "repository": {
     "type": "git",
-    "url": "https://github.com/meshtastic/firmware.git"
+    "url": "https://github.com/caveman99/libmeshtastic-leaf.git"
   },
   "authors": [
     {
-      "name": "Meshtastic",
-      "url": "https://meshtastic.org"
+      "name": "Thomas Göttgens",
+      "email": "tgoettgens@gmail.com"
     }
   ],
-  "license": "GPL-3.0",
-  "homepage": "https://meshtastic.org",
+  "license": "GPL-3.0-only",
+  "homepage": "https://github.com/caveman99/libmeshtastic-leaf",
   "frameworks": ["arduino"],
   "platforms": [
     "espressif32",
@@ -24,16 +24,8 @@
     "ststm32"
   ],
   "dependencies": {
-    "jgromes/RadioLib": "^7.5.0",
+    "jgromes/RadioLib": "^7.7.1",
     "nanopb/Nanopb": "^0.4.91",
     "rweather/Crypto": "^0.4.0"
-  },
-  "build": {
-    "srcFilter": [
-      "+<*>",
-      "+<radio/*>",
-      "+<generated/*>",
-      "+<generated/meshtastic/*>"
-    ]
   }
 }
