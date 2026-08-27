@@ -33,18 +33,11 @@ your libraries folder.
 
 ### Dependencies
 
-| Dependency                | Note                                     |
-| ------------------------- | ---------------------------------------- |
-| `jgromes/RadioLib@^7.7.1` | the radio driver                         |
-| `nanopb/Nanopb@^0.4.91`   | runtime for the generated `Data` message |
-| `meshtastic/Crypto`       | AES, Curve25519, SHA256                  |
-
-The crypto dependency must be [meshtastic/Crypto](https://github.com/meshtastic/Crypto).
-Upstream `rweather/Crypto` will not build against this library: the fork names
-the RNG global `CryptRNG` and exposes `Curve25519::isWeakPoint()`.
-
-`library.json` is the single source of truth for these pins. `bin/version.py`
-copies them into the examples, and CI fails if they disagree.
+| Dependency                                                  | Note                                     |
+| ----------------------------------------------------------- | ---------------------------------------- |
+| `jgromes/RadioLib@^7.7.1`                                   | the radio driver                         |
+| `nanopb/Nanopb@^0.4.91`                                     | runtime for the generated `Data` message |
+| [`meshtastic/Crypto`](https://github.com/meshtastic/Crypto) | AES, Curve25519, SHA256                  |
 
 ## Quick start
 
@@ -187,16 +180,7 @@ the host, which cannot work.
 
 ### Protobufs
 
-A leaf only ever parses the `Data` submessage of `mesh.proto`. Generating
-`mesh.proto` whole would pull in `config`, `device_ui`, `module_config`,
-`telemetry` and `xmodem`, so `bin/regen-protos.py` trims `Data` out at the
-descriptor level and generates from that.
-
-Nothing in this repository restates a `.proto` or a nanopb option. The
-`protobufs` submodule is the only source, and the trimmed descriptor is derived
-on every run and never committed. The imports and the nanopb options are read
-off the message itself, so a new upstream field is picked up without editing
-anything here.
+A leaf only ever parses the `Data` submessage of `mesh.proto`.
 
 ```sh
 git submodule update --init protobufs
