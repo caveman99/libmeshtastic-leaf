@@ -14,10 +14,8 @@ Working: packet framing, channel (PSK) encryption, PKI encryption, region and
 preset tables, `Data` payload encoding, carrier sense with a contention window,
 airtime accounting and duty cycle limiting.
 
-Not implemented yet: the frequency slot calculation is incomplete for regions
-whose profile has non-zero channel spacing or padding, so those regions land on
-the wrong frequency. There is no acknowledgement or retransmission, and no
-dwell time limiting.
+Not implemented yet: duplicate suppression, acknowledgement and
+retransmission, and dwell time limiting.
 
 ## Installation
 
@@ -96,9 +94,13 @@ Everything lives in namespace `libmeshtastic_leaf`.
 | `void end()`                                    | stop receiving and put the radio to sleep                          |
 | `void update()`                                 | call from `loop()`; drains the radio and runs the receive callback |
 
-`MeshConfig` holds `nodeNum`, `hopLimit` and a `RadioConfig` with `region`,
-`preset`, and optional `frequency` and `txPower` overrides. Leave the last two
-at zero to take the region defaults.
+`MeshConfig` holds `nodeNum`, `hopLimit` and a `RadioConfig` with `region` and
+`preset`. Leave `frequency`, `channelNum`, `frequencyOffset` and `txPower` at
+zero to take the region defaults.
+
+The frequency is chosen in that order of precedence: an explicit `frequency`
+wins, then a one-based `channelNum`, otherwise the region hashes the channel
+name to pick a slot. `frequencyOffset` is added to whichever was used.
 
 ### Channels
 
@@ -181,8 +183,14 @@ writes to flash.
 `nodeNumFromMac()`, `getShortName()`, `getLastByte()`.
 
 `MeshRegion` looks up regulatory and modem data: `getRegion()`,
-`getRegionName()`, `getDefaultFrequency()`, `getPowerLimit()`, `isWideLoRa()`,
-`getModemParams()`, `getPresetName()`, `getAllRegions()`.
+`getRegionName()`, `getPowerLimit()`, `isWideLoRa()`, `getModemParams()`,
+`getPresetName()`, `getAllRegions()`.
+
+For frequencies: `getFrequency(region, preset, channelName)` gives the centre
+the library would use, `getFrequencyForSlot(region, preset, slot)` takes a
+one-based slot, and `getDefaultSlot()` gives the zero-based slot a channel
+name hashes to. `RegionInfo::slotWidth()` and `numSlots()` expose the channel
+plan itself.
 
 ## Examples
 

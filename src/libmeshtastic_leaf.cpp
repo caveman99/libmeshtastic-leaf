@@ -34,6 +34,8 @@ bool libmeshtastic_leaf::begin(const MeshConfig &config, PhysicalLayer *phy) {
   config_ = config;
   phy_ = phy;
 
+  setDefaultChannel();
+
   if (!applyRfConfig()) {
     return false;
   }
@@ -43,9 +45,7 @@ bool libmeshtastic_leaf::begin(const MeshConfig &config, PhysicalLayer *phy) {
   txState_ = TxState::IDLE;
 
   const RegionInfo *region = MeshRegion::getRegion(config_.radio.region);
-  dutyCycleLimit_ = region ? (float)region->dutyCycle : 100.0f;
-
-  setDefaultChannel();
+  dutyCycleLimit_ = region ? region->dutyCycle : 100.0f;
 
   radioIrqFlag = false;
   phy_->setPacketReceivedAction(onRadioIrq);
@@ -73,9 +73,16 @@ bool libmeshtastic_leaf::applyRfConfig() {
     return false;
   }
 
-  const float freq = rf.frequency > 0.0f
-                         ? rf.frequency
-                         : MeshRegion::getDefaultFrequency(rf.region);
+  // An explicit frequency wins, then an explicit one-based slot, otherwise the
+  // region picks a slot from the channel name.
+  float freq = rf.frequency;
+  if (freq <= 0.0f) {
+    freq = rf.channelNum > 0 ? MeshRegion::getFrequencyForSlot(
+                                   rf.region, rf.preset, rf.channelNum)
+                             : MeshRegion::getFrequency(rf.region, rf.preset,
+                                                        channel_.getName());
+  }
+  freq += rf.frequencyOffset;
   if (phy_->setFrequency(freq) != RADIOLIB_ERR_NONE) {
     return false;
   }

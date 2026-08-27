@@ -194,11 +194,14 @@ TEST(region_name_lookup) {
 }
 
 TEST(region_default_frequency) {
+  // The default is the hashed slot for the region's default preset, not the
+  // bottom of the band.
   float freq = MeshRegion::getDefaultFrequency(REGION_US);
-  ASSERT_TRUE(freq > 902.0f && freq < 903.0f);
+  ASSERT_TRUE(freq > 906.8749f && freq < 906.8751f);
 
+  const RegionInfo *eu = MeshRegion::getRegion(REGION_EU_868);
   float freq_eu = MeshRegion::getDefaultFrequency(REGION_EU_868);
-  ASSERT_TRUE(freq_eu > 869.0f && freq_eu < 870.0f);
+  ASSERT_TRUE(freq_eu >= eu->freqStart && freq_eu <= eu->freqEnd);
 }
 
 TEST(region_power_limit) {
@@ -234,11 +237,23 @@ TEST(modem_preset_short_fast) {
   ASSERT_EQ(params.cr, 5);
 }
 
-TEST(modem_preset_very_long_slow) {
-  ModemParams params = MeshRegion::getModemParams(PRESET_VERY_LONG_SLOW, false);
+TEST(modem_preset_long_slow) {
+  ModemParams params = MeshRegion::getModemParams(PRESET_LONG_SLOW, false);
   ASSERT_EQ(params.sf, 12);
-  ASSERT_TRUE(params.bw >= 62.0f && params.bw <= 63.0f);
+  ASSERT_TRUE(params.bw >= 124.0f && params.bw <= 126.0f);
   ASSERT_EQ(params.cr, 8);
+}
+
+TEST(modem_preset_narrow_and_tiny) {
+  ModemParams narrow = MeshRegion::getModemParams(PRESET_NARROW_SLOW, false);
+  ASSERT_EQ(narrow.sf, 8);
+  ASSERT_TRUE(narrow.bw > 62.0f && narrow.bw < 63.0f);
+  ASSERT_EQ(narrow.cr, 6);
+
+  ModemParams tiny = MeshRegion::getModemParams(PRESET_TINY_FAST, false);
+  ASSERT_EQ(tiny.sf, 7);
+  ASSERT_TRUE(tiny.bw > 15.5f && tiny.bw < 15.7f);
+  ASSERT_EQ(tiny.cr, 5);
 }
 
 TEST(modem_preset_wide_lora) {
@@ -251,26 +266,9 @@ TEST(modem_preset_wide_lora) {
 }
 
 TEST(preset_name) {
-  ASSERT_STREQ(MeshRegion::getPresetName(PRESET_LONG_FAST), "Long Fast");
-  ASSERT_STREQ(MeshRegion::getPresetName(PRESET_SHORT_FAST), "Short Fast");
-  ASSERT_STREQ(MeshRegion::getPresetName(PRESET_VERY_LONG_SLOW),
-               "Very Long Slow");
-}
-
-TEST(region_channel_calculation) {
-  const RegionInfo *region = MeshRegion::getRegion(REGION_US);
-  ASSERT_TRUE(region != nullptr);
-
-  float bw = 250.0f;
-  float freq0 = region->getChannelFrequency(0, bw);
-  float freq1 = region->getChannelFrequency(1, bw);
-
-  ASSERT_TRUE(freq0 > 902.0f && freq0 < 903.0f);
-
-  // ponytail: encodes the current slot maths, which ignores the region
-  // profile's spacing and padding. Fix together with getChannelFrequency().
-  float spacing = freq1 - freq0;
-  ASSERT_TRUE(spacing >= 0.24f && spacing <= 0.26f);
+  ASSERT_STREQ(MeshRegion::getPresetName(PRESET_LONG_FAST), "LongFast");
+  ASSERT_STREQ(MeshRegion::getPresetName(PRESET_SHORT_FAST), "ShortFast");
+  ASSERT_STREQ(MeshRegion::getPresetName(PRESET_TINY_SLOW), "TinySlow");
 }
 
 TEST(flag_masks) {
@@ -356,6 +354,135 @@ TEST(slot_time_shorter_for_faster_preset) {
   ASSERT_TRUE(slotTimeFor(PRESET_SHORT_FAST) < slotTimeFor(PRESET_LONG_FAST));
 }
 
+TEST(preset_names_match_firmware) {
+  // These strings are hashed to pick a frequency slot and to derive the
+  // channel hash, so they have to be byte identical to the firmware's.
+  ASSERT_STREQ(MeshRegion::getPresetName(PRESET_LONG_FAST), "LongFast");
+  ASSERT_STREQ(MeshRegion::getPresetName(PRESET_LONG_MODERATE), "LongMod");
+  ASSERT_STREQ(MeshRegion::getPresetName(PRESET_MEDIUM_SLOW), "MediumSlow");
+  ASSERT_STREQ(MeshRegion::getPresetName(PRESET_NARROW_SLOW), "NarrowSlow");
+  ASSERT_STREQ(MeshRegion::getPresetName(PRESET_LONG_FAST, true), "LongF");
+  ASSERT_STREQ(MeshRegion::getPresetName(PRESET_LONG_MODERATE, true), "LongM");
+}
+
+TEST(djb2_hash) {
+  ASSERT_EQ(MeshRegion::hashName(""), 5381u);
+  // 5381 * 33 + 'a'
+  ASSERT_EQ(MeshRegion::hashName("a"), 177670u);
+}
+
+TEST(slot_width_plain_region) {
+  const RegionInfo *us = MeshRegion::getRegion(REGION_US);
+  // No spacing and no padding, so a slot is exactly the bandwidth.
+  ASSERT_TRUE(us->slotWidth(250.0f) > 0.2499f &&
+              us->slotWidth(250.0f) < 0.2501f);
+}
+
+TEST(slot_width_includes_padding_and_spacing) {
+  // EU_866: 400 kHz spacing plus 37.5 kHz padding either side of a 125 kHz
+  // channel gives 0.4 + 0.075 + 0.125 = 0.6 MHz.
+  const RegionInfo *eu866 = MeshRegion::getRegion(REGION_EU_866);
+  float w = eu866->slotWidth(125.0f);
+  ASSERT_TRUE(w > 0.5999f && w < 0.6001f);
+
+  // EU_N_868: no spacing, 10.4 kHz either side of 62.5 kHz gives 0.0833 MHz.
+  const RegionInfo *eun = MeshRegion::getRegion(REGION_EU_N_868);
+  w = eun->slotWidth(62.5f);
+  ASSERT_TRUE(w > 0.0832f && w < 0.0834f);
+}
+
+TEST(eu866_lands_on_the_regulatory_channels) {
+  // 865.7 / 866.3 / 866.9 / 867.5 MHz, four channels 600 kHz apart.
+  const RegionInfo *eu866 = MeshRegion::getRegion(REGION_EU_866);
+  ASSERT_EQ(eu866->numSlots(125.0f), 4u);
+
+  float first = eu866->slotFrequency(0, 125.0f);
+  ASSERT_TRUE(first > 865.6999f && first < 865.7001f);
+
+  float last = eu866->slotFrequency(3, 125.0f);
+  ASSERT_TRUE(last > 867.4999f && last < 867.5001f);
+}
+
+TEST(eu_n_868_uses_its_override_slot) {
+  // The region pins slot 1, so the channel name must not move it.
+  ASSERT_EQ(MeshRegion::getDefaultSlot(REGION_EU_N_868, PRESET_NARROW_SLOW,
+                                       "anything"),
+            0u);
+  float freq =
+      MeshRegion::getFrequency(REGION_EU_N_868, PRESET_NARROW_SLOW, "");
+  ASSERT_TRUE(freq > 869.4f && freq < 869.65f);
+}
+
+TEST(ham_padding_widens_the_channel) {
+  // 15.6 kHz coerced to 20 kHz: 0.0022 either side gives 0.02 MHz.
+  const RegionInfo *itu = MeshRegion::getRegion(REGION_ITU1_2M);
+  float w = itu->slotWidth(15.6f);
+  ASSERT_TRUE(w > 0.0199f && w < 0.0201f);
+  ASSERT_TRUE(itu->licensedOnly());
+}
+
+TEST(us_longfast_default_slot) {
+  // The documented default: LongFast on US is slot 20, 906.875 MHz.
+  ASSERT_EQ(MeshRegion::getDefaultSlot(REGION_US, PRESET_LONG_FAST, ""), 19u);
+  float freq = MeshRegion::getFrequency(REGION_US, PRESET_LONG_FAST, "");
+  ASSERT_TRUE(freq > 906.8749f && freq < 906.8751f);
+}
+
+TEST(explicit_slot_is_one_based) {
+  float slot1 = MeshRegion::getFrequencyForSlot(REGION_US, PRESET_LONG_FAST, 1);
+  const RegionInfo *us = MeshRegion::getRegion(REGION_US);
+  ASSERT_TRUE(slot1 == us->slotFrequency(0, 250.0f));
+  ASSERT_TRUE(MeshRegion::getFrequencyForSlot(REGION_US, PRESET_LONG_FAST, 0) ==
+              0.0f);
+}
+
+TEST(jp_slots_fit_the_band) {
+  // 920.5 to 923.5 MHz at 250 kHz gives 12 slots, all inside the band.
+  const RegionInfo *jp = MeshRegion::getRegion(REGION_JP);
+  uint32_t slots = jp->numSlots(250.0f);
+  ASSERT_EQ(slots, 12u);
+  ASSERT_TRUE(jp->slotFrequency(0, 250.0f) >= jp->freqStart);
+  ASSERT_TRUE(jp->slotFrequency(slots - 1, 250.0f) <= jp->freqEnd);
+}
+
+TEST(every_region_first_slot_inside_band) {
+  size_t count = 0;
+  const RegionInfo *regions = MeshRegion::getAllRegions(count);
+  for (size_t i = 0; i < count; i++) {
+    const RegionInfo &r = regions[i];
+    ModemParams p = MeshRegion::getModemParams(r.defaultPreset, r.wideLora);
+    ASSERT_TRUE(r.numSlots(p.bw) > 0);
+    float first = r.slotFrequency(0, p.bw);
+    ASSERT_TRUE(first >= r.freqStart);
+    ASSERT_TRUE(first <= r.freqEnd);
+  }
+}
+
+TEST(slot_count_rounds_like_the_firmware) {
+  // numSlots rounds to nearest, which can put the last slot's upper edge past
+  // the band edge. That is what the firmware does, and interoperating matters
+  // more than the band edge here, so it is reproduced rather than corrected.
+  const RegionInfo *ph868 = MeshRegion::getRegion(REGION_PH_868);
+  ASSERT_EQ(ph868->numSlots(250.0f), 6u);
+  float top = ph868->slotFrequency(5, 250.0f) + 0.125f;
+  ASSERT_TRUE(top > ph868->freqEnd);
+}
+
+TEST(ham_regions_are_exact_after_padding) {
+  // 15.6 kHz padded to 20 kHz gives exactly 100 slots in 2 MHz.
+  const RegionInfo *itu1 = MeshRegion::getRegion(REGION_ITU1_2M);
+  ASSERT_EQ(itu1->numSlots(15.6f), 100u);
+  // 62.5 kHz padded to 100 kHz gives exactly 100 slots in 10 MHz.
+  const RegionInfo *itu70 = MeshRegion::getRegion(REGION_ITU1_70CM);
+  ASSERT_EQ(itu70->numSlots(62.5f), 100u);
+}
+
+TEST(eu_n_868_narrow_slots) {
+  // 62.5 kHz padded to 83.3 kHz fits three slots in the 250 kHz band.
+  const RegionInfo *eun = MeshRegion::getRegion(REGION_EU_N_868);
+  ASSERT_EQ(eun->numSlots(62.5f), 3u);
+}
+
 int main() {
   printf("libmeshtastic_leaf Unit Tests\n");
   printf("=========================\n\n");
@@ -387,6 +514,20 @@ int main() {
   RUN_TEST(flag_masks);
 
   printf("\nMeshRegion Tests:\n");
+  RUN_TEST(preset_names_match_firmware);
+  RUN_TEST(djb2_hash);
+  RUN_TEST(slot_width_plain_region);
+  RUN_TEST(slot_width_includes_padding_and_spacing);
+  RUN_TEST(eu866_lands_on_the_regulatory_channels);
+  RUN_TEST(eu_n_868_uses_its_override_slot);
+  RUN_TEST(ham_padding_widens_the_channel);
+  RUN_TEST(us_longfast_default_slot);
+  RUN_TEST(explicit_slot_is_one_based);
+  RUN_TEST(jp_slots_fit_the_band);
+  RUN_TEST(every_region_first_slot_inside_band);
+  RUN_TEST(slot_count_rounds_like_the_firmware);
+  RUN_TEST(ham_regions_are_exact_after_padding);
+  RUN_TEST(eu_n_868_narrow_slots);
   RUN_TEST(region_us);
   RUN_TEST(region_eu_868);
   RUN_TEST(region_lora24);
@@ -397,10 +538,10 @@ int main() {
   RUN_TEST(region_all_regions);
   RUN_TEST(modem_preset_long_fast);
   RUN_TEST(modem_preset_short_fast);
-  RUN_TEST(modem_preset_very_long_slow);
+  RUN_TEST(modem_preset_long_slow);
+  RUN_TEST(modem_preset_narrow_and_tiny);
   RUN_TEST(modem_preset_wide_lora);
   RUN_TEST(preset_name);
-  RUN_TEST(region_channel_calculation);
 
   printf("\n=========================\n");
   printf("Tests run: %d\n", tests_run);

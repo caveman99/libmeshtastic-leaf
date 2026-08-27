@@ -71,6 +71,7 @@ private:
   enum class TxState { IDLE, BACKOFF, SENDING };
 
   bool applyRfConfig();
+  const char *resolveChannelName(const char *name) const;
   void serviceTx();
   void finishTx();
   uint32_t computeSlotTimeMsec() const;

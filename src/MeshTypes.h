@@ -228,13 +228,15 @@ struct MeshPacket {
 };
 
 struct RadioConfig {
-  RegionCode region; ///< Region code (for frequency/power lookup)
-  float frequency;   ///< Center frequency in MHz (0 = auto from region)
-  int8_t txPower;    ///< Transmit power in dBm (0 = auto from region)
+  RegionCode region;
+  float frequency;       ///< MHz, 0 picks a slot from the region
+  float frequencyOffset; ///< MHz, added to the chosen frequency
+  uint32_t channelNum;   ///< one-based slot, 0 hashes the channel name
+  int8_t txPower;        ///< dBm, 0 takes the region limit
   ModemPreset preset;
   RadioConfig()
-      : region(REGION_US), frequency(0.0f), txPower(0),
-        preset(PRESET_LONG_FAST) {}
+      : region(REGION_US), frequency(0.0f), frequencyOffset(0.0f),
+        channelNum(0), txPower(0), preset(PRESET_LONG_FAST) {}
 };
 
 struct MeshConfig {

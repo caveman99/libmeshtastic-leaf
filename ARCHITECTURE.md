@@ -63,6 +63,28 @@ state machine, configuration persistence, admin messages.
 Duplicate suppression, acknowledgement and retransmission, and dwell time
 limiting. See the status section in [README.md](README.md).
 
+## Frequency slots
+
+A region carries a profile giving channel `spacing`, the gap between operating
+channels and at the start of the band, and `padding`, the gap at each side of a
+channel. Padding is how a narrow bandwidth is coerced up to a wider regulatory
+channel: 15.6 kHz becomes a 20 kHz ham channel, 62.5 kHz becomes 100 kHz.
+
+    slotWidth = spacing + 2 * padding + bandwidth
+    numSlots  = round((freqEnd - freqStart + spacing) / slotWidth)
+    frequency = freqStart + bandwidth / 2 + padding + slot * slotWidth
+
+The slot is chosen by precedence: an explicit frequency, then a one-based slot
+number, then the region's `overrideSlot` if it pins one, then the djb2 hash of
+the channel name modulo `numSlots`. An unnamed channel is called after its
+modem preset, so the preset name is what gets hashed, and the same name feeds
+the channel hash byte in the header. Both have to match the firmware's strings
+exactly or nothing interoperates.
+
+`numSlots` rounds to nearest, which can leave the last slot's upper edge past
+the band edge in a few regions. That is what the firmware computes, so it is
+reproduced rather than corrected.
+
 ## Transmission
 
 `send*()` stages one frame and returns; `update()` drives it. The states are
