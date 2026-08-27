@@ -1,6 +1,6 @@
 {
   "name": "libmeshtastic-leaf",
-  "version": "1.0.0",
+  "version": "0.5.0",
   "description": "Minimal, cross-platform Arduino-compatible library for Meshtastic leaf node operation. Enables sending, receiving, and processing Meshtastic packets without routing or rebroadcasting.",
   "keywords": "meshtastic, lora, mesh, radio, leaf, iot",
   "repository": {
