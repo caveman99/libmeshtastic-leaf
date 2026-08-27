@@ -60,7 +60,7 @@ public:
 
 namespace detail {
 
-// Mirrors the region table in the firmware's RadioInterface.cpp.
+// Regulatory limits per region.
 static const RegionInfo REGIONS[] = {
     // code,        freqStart,  freqEnd,  duty, space, power, audio, fhop, wide,
     // name

@@ -115,7 +115,7 @@ inline void MeshNodeId::getMacAddr(uint8_t mac[6]) {
 #endif // ARDUINO
 
 inline NodeNum MeshNodeId::nodeNumFromMac(const uint8_t mac[6]) {
-  // Last 4 bytes of the MAC, same as the firmware.
+  // Node number is the last 4 bytes of the MAC.
   return ((uint32_t)mac[2] << 24) | ((uint32_t)mac[3] << 16) |
          ((uint32_t)mac[4] << 8) | ((uint32_t)mac[5]);
 }

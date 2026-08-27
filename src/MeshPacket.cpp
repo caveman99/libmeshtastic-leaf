@@ -19,8 +19,8 @@ namespace libmeshtastic_leaf {
 uint32_t MeshPacketCodec::packetIdCounter_ = 0;
 
 void MeshPacketCodec::packHeader(const PacketHeader &header, uint8_t *buffer) {
-  // Packed explicitly rather than memcpy'd, so the layout does not depend
-  // on the host's endianness or struct padding. See ARCHITECTURE.md.
+  // Packed byte by byte so the layout does not depend on host endianness or
+  // struct padding. See ARCHITECTURE.md.
 
   buffer[0] = (header.to >> 0) & 0xFF;
   buffer[1] = (header.to >> 8) & 0xFF;

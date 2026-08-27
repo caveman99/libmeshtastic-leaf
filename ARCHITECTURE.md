@@ -5,13 +5,6 @@ The rule that keeps the two apart: **this library holds one `PhysicalLayer*`
 and calls the generic API on it. It never wraps a chip, and never re-abstracts
 something RadioLib already abstracts.**
 
-An earlier version of this library had a `MeshRadio` base class with 17 pure
-virtuals, implemented four times over for SX126x, SX127x, SX128x and LR11x0.
-Nearly every method forwarded one to one to a RadioLib call that is already
-virtual on `PhysicalLayer`, and the main header included all four drivers, so
-every sketch compiled support for every chip. That is the mistake this document
-exists to prevent.
-
 ## RadioLib owns this
 
 Do not wrap it, do not re-declare it, do not add a driver for it.
@@ -31,8 +24,8 @@ Do not wrap it, do not re-declare it, do not add a driver for it.
 - chip errata: the SX1262 RX sensitivity register patch, RX boosted gain, the
   RFM95 frequency limits
 
-LoRaWAN, the most complex protocol RadioLib ships, needs nothing more than this
-either. If something here looks like it needs a per-chip class, it does not.
+A per-chip class in this library is always wrong. `PhysicalLayer` covers
+SX126x, SX127x, SX128x, LR11x0 and LR2021 through one pointer.
 
 ## The sketch owns this
 
@@ -67,13 +60,11 @@ state machine, configuration persistence, admin messages.
 ### Still missing
 
 The MAC layer: carrier sense, contention window, airtime accounting, duty
-cycle, and duplicate suppression. Note that in the firmware the duty cycle
-check lives in `Router::send`, not in the radio layer, so lifting the radio
-layer alone loses it. See the status section in [README.md](README.md).
+cycle, and duplicate suppression. Duty cycle enforcement belongs in the send
+path, not in the radio configuration. See the status section in
+[README.md](README.md).
 
 ## Wire formats
-
-These are the details the source no longer restates.
 
 ### Header
 
@@ -92,9 +83,8 @@ These are the details the source no longer restates.
 Flags: bits 0 to 2 hop limit, bit 3 want ack, bit 4 via MQTT, bits 5 to 7 hop
 start. The payload follows immediately, at most 239 bytes.
 
-The firmware writes this struct out directly, so its layout depends on the
-host being little endian with no padding. This library packs and unpacks byte
-by byte instead.
+The header is packed and unpacked byte by byte, so the layout does not depend
+on host endianness or struct padding.
 
 ### Channel encryption
 
@@ -139,15 +129,12 @@ touches NVS, EEPROM or a filesystem.
 
 Reception is driven by `setPacketReceivedAction` with a file scope flag, and
 drained from `update()`. RadioLib callbacks take a plain `void(*)(void)` with
-no context pointer, which is why the flag cannot live in the instance, and why
-there can be one active instance per process. `LoRaWANNode` has the same
-constraint for the same reason.
+no context pointer, so the flag cannot live in the instance. One active
+instance per process.
 
-There is no RTOS dependency and no thread. The firmware's cooperative scheduler
-and its `NotifiedWorkerThread` are not needed here, but note the reason the
-firmware also polls for missed interrupts: that class has a single notification
-slot, so a second event arriving before the first is consumed is dropped. Any
-future MAC work here should keep an equivalent backstop.
+There is no RTOS dependency and no thread. A single pending interrupt flag can
+drop a second event that arrives before the first is consumed, so a MAC layer
+added here needs a periodic poll as a backstop.
 
 ## Protobufs
 
@@ -163,8 +150,6 @@ includes the generated header.
 ## Licensing
 
 The library is GPL-3.0-only because it carries code derived from the Meshtastic
-firmware, which is GPL-3.0. This is also why it cannot be contributed to
-RadioLib, which is MIT and has a deliberate zero dependency policy. RadioLib's
-maintainer has separately declared a Meshtastic protocol module out of scope
-for that project, and pointed at exactly this arrangement instead: use RadioLib
-as the driver from your own project.
+firmware, which is GPL-3.0. It therefore cannot be merged into RadioLib, which
+is MIT and carries no dependencies. RadioLib is consumed as a dependency
+instead.

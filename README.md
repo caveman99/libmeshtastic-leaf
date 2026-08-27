@@ -39,10 +39,9 @@ your libraries folder.
 | `nanopb/Nanopb@^0.4.91`   | runtime for the generated `Data` message |
 | `meshtastic/Crypto`       | AES, Curve25519, SHA256                  |
 
-The crypto dependency must be [meshtastic/Crypto](https://github.com/meshtastic/Crypto),
-not upstream `rweather/Crypto`. The fork renames the `RNG` global to `CryptRNG`
-to avoid a collision with toolchains that declare their own, and exposes
-`Curve25519::isWeakPoint()`.
+The crypto dependency must be [meshtastic/Crypto](https://github.com/meshtastic/Crypto).
+Upstream `rweather/Crypto` will not build against this library: the fork names
+the RNG global `CryptRNG` and exposes `Curve25519::isWeakPoint()`.
 
 `library.json` is the single source of truth for these pins. `bin/version.py`
 copies them into the examples, and CI fails if they disagree.
@@ -182,9 +181,9 @@ pio test -e native
 ```
 
 The tests are a host build and need no board. They live in their own PlatformIO
-project because a `platformio.ini` at the repository root would make PlatformIO
-treat `library.json` as the project manifest and try to build RadioLib and
-Crypto for the host.
+project: a `platformio.ini` at the repository root makes PlatformIO treat
+`library.json` as the project manifest and try to build RadioLib and Crypto for
+the host, which cannot work.
 
 ### Protobufs
 
@@ -227,10 +226,9 @@ version. It advances the protobufs submodule, regenerates, sets the version,
 runs the tests and example builds, then commits, tags and publishes. The
 `dry_run` input does everything except push.
 
-The workflow is split so the write scoped token is never in the same job as
-repository code: `verify` runs the scripts and builds with a read only token
-and emits a patch, and `publish` applies that patch and runs nothing but `git`
-and `gh`.
+The write scoped token is never in the same job as repository code: `verify`
+runs the scripts and builds with a read only token and emits a patch, and
+`publish` applies that patch and runs nothing but `git` and `gh`.
 
 ## License
 

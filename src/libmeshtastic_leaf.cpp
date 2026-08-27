@@ -5,7 +5,7 @@
 namespace libmeshtastic_leaf {
 
 // RadioLib packet callbacks carry no context pointer, so the flag lives at
-// file scope. Same constraint as LoRaWANNode: one active instance per process.
+// file scope. One active instance per process.
 static volatile bool packetReceivedFlag = false;
 
 static void onPacketReceived() { packetReceivedFlag = true; }
