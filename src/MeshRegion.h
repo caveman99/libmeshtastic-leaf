@@ -6,101 +6,16 @@
  * - Region-specific frequency parameters
  * - Modem preset parameters (SF, BW, CR)
  *
- * Uses the protobuf-generated enums for type safety and compatibility
- * with the main Meshtastic firmware.
+ * Region and preset codes come from MeshTypes.h; see the note there on why
+ * they are declared natively rather than taken from config.pb.h.
  */
 
 #pragma once
 
-#include "generated/meshtastic/config.pb.h"
+#include "MeshTypes.h"
 #include <stdint.h>
 
 namespace libmeshtastic_leaf {
-
-// ============================================================================
-// Type Aliases for Protobuf Enums
-// ============================================================================
-
-/// Region code using protobuf enum
-using RegionCode = meshtastic_Config_LoRaConfig_RegionCode;
-
-/// Modem preset using protobuf enum
-using ModemPreset = meshtastic_Config_LoRaConfig_ModemPreset;
-
-// ============================================================================
-// Region Constants (for convenience)
-// ============================================================================
-
-constexpr RegionCode REGION_UNSET =
-    meshtastic_Config_LoRaConfig_RegionCode_UNSET;
-constexpr RegionCode REGION_US = meshtastic_Config_LoRaConfig_RegionCode_US;
-constexpr RegionCode REGION_EU_433 =
-    meshtastic_Config_LoRaConfig_RegionCode_EU_433;
-constexpr RegionCode REGION_EU_868 =
-    meshtastic_Config_LoRaConfig_RegionCode_EU_868;
-constexpr RegionCode REGION_CN = meshtastic_Config_LoRaConfig_RegionCode_CN;
-constexpr RegionCode REGION_JP = meshtastic_Config_LoRaConfig_RegionCode_JP;
-constexpr RegionCode REGION_ANZ = meshtastic_Config_LoRaConfig_RegionCode_ANZ;
-constexpr RegionCode REGION_KR = meshtastic_Config_LoRaConfig_RegionCode_KR;
-constexpr RegionCode REGION_TW = meshtastic_Config_LoRaConfig_RegionCode_TW;
-constexpr RegionCode REGION_RU = meshtastic_Config_LoRaConfig_RegionCode_RU;
-constexpr RegionCode REGION_IN = meshtastic_Config_LoRaConfig_RegionCode_IN;
-constexpr RegionCode REGION_NZ_865 =
-    meshtastic_Config_LoRaConfig_RegionCode_NZ_865;
-constexpr RegionCode REGION_TH = meshtastic_Config_LoRaConfig_RegionCode_TH;
-constexpr RegionCode REGION_LORA_24 =
-    meshtastic_Config_LoRaConfig_RegionCode_LORA_24;
-constexpr RegionCode REGION_UA_433 =
-    meshtastic_Config_LoRaConfig_RegionCode_UA_433;
-constexpr RegionCode REGION_UA_868 =
-    meshtastic_Config_LoRaConfig_RegionCode_UA_868;
-constexpr RegionCode REGION_MY_433 =
-    meshtastic_Config_LoRaConfig_RegionCode_MY_433;
-constexpr RegionCode REGION_MY_919 =
-    meshtastic_Config_LoRaConfig_RegionCode_MY_919;
-constexpr RegionCode REGION_SG_923 =
-    meshtastic_Config_LoRaConfig_RegionCode_SG_923;
-constexpr RegionCode REGION_PH_433 =
-    meshtastic_Config_LoRaConfig_RegionCode_PH_433;
-constexpr RegionCode REGION_PH_868 =
-    meshtastic_Config_LoRaConfig_RegionCode_PH_868;
-constexpr RegionCode REGION_PH_915 =
-    meshtastic_Config_LoRaConfig_RegionCode_PH_915;
-constexpr RegionCode REGION_ANZ_433 =
-    meshtastic_Config_LoRaConfig_RegionCode_ANZ_433;
-constexpr RegionCode REGION_KZ_433 =
-    meshtastic_Config_LoRaConfig_RegionCode_KZ_433;
-constexpr RegionCode REGION_KZ_863 =
-    meshtastic_Config_LoRaConfig_RegionCode_KZ_863;
-constexpr RegionCode REGION_NP_865 =
-    meshtastic_Config_LoRaConfig_RegionCode_NP_865;
-constexpr RegionCode REGION_BR_902 =
-    meshtastic_Config_LoRaConfig_RegionCode_BR_902;
-
-// ============================================================================
-// Modem Preset Constants (for convenience)
-// ============================================================================
-
-constexpr ModemPreset PRESET_LONG_FAST =
-    meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST;
-constexpr ModemPreset PRESET_LONG_SLOW =
-    meshtastic_Config_LoRaConfig_ModemPreset_LONG_SLOW;
-constexpr ModemPreset PRESET_VERY_LONG_SLOW =
-    meshtastic_Config_LoRaConfig_ModemPreset_VERY_LONG_SLOW;
-constexpr ModemPreset PRESET_MEDIUM_SLOW =
-    meshtastic_Config_LoRaConfig_ModemPreset_MEDIUM_SLOW;
-constexpr ModemPreset PRESET_MEDIUM_FAST =
-    meshtastic_Config_LoRaConfig_ModemPreset_MEDIUM_FAST;
-constexpr ModemPreset PRESET_SHORT_SLOW =
-    meshtastic_Config_LoRaConfig_ModemPreset_SHORT_SLOW;
-constexpr ModemPreset PRESET_SHORT_FAST =
-    meshtastic_Config_LoRaConfig_ModemPreset_SHORT_FAST;
-constexpr ModemPreset PRESET_LONG_MODERATE =
-    meshtastic_Config_LoRaConfig_ModemPreset_LONG_MODERATE;
-constexpr ModemPreset PRESET_SHORT_TURBO =
-    meshtastic_Config_LoRaConfig_ModemPreset_SHORT_TURBO;
-constexpr ModemPreset PRESET_LONG_TURBO =
-    meshtastic_Config_LoRaConfig_ModemPreset_LONG_TURBO;
 
 // ============================================================================
 // Structures

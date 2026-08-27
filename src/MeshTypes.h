@@ -11,24 +11,82 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// Include generated portnums for PortNum enum
-#include "generated/meshtastic/config.pb.h"
+// Only portnums.pb.h is reachable from the public headers. The Data message
+// itself is parsed in exactly one translation unit (MeshPacket.cpp).
 #include "generated/meshtastic/portnums.pb.h"
-
-// Forward declare types from MeshRegion.h to avoid circular dependency
-// The actual MeshRegion.h provides the full implementation
 
 namespace libmeshtastic_leaf {
 
 // ============================================================================
-// Protobuf Type Aliases
+// Region and modem preset codes
 // ============================================================================
+//
+// These mirror RegionCode and ModemPreset from the upstream config.proto.
+// They are declared natively so that no public header of this library depends
+// on config.pb.h, which transitively pulls in device_ui.pb.h and the whole
+// device configuration schema. Values are wire contract: append only, never
+// renumber.
 
-/// Region code using protobuf enum
-using RegionCode = meshtastic_Config_LoRaConfig_RegionCode;
+enum RegionCode : uint8_t {
+  REGION_UNSET = 0,
+  REGION_US = 1,
+  REGION_EU_433 = 2,
+  REGION_EU_868 = 3,
+  REGION_CN = 4,
+  REGION_JP = 5,
+  REGION_ANZ = 6,
+  REGION_KR = 7,
+  REGION_TW = 8,
+  REGION_RU = 9,
+  REGION_IN = 10,
+  REGION_NZ_865 = 11,
+  REGION_TH = 12,
+  REGION_LORA_24 = 13,
+  REGION_UA_433 = 14,
+  REGION_UA_868 = 15,
+  REGION_MY_433 = 16,
+  REGION_MY_919 = 17,
+  REGION_SG_923 = 18,
+  REGION_PH_433 = 19,
+  REGION_PH_868 = 20,
+  REGION_PH_915 = 21,
+  REGION_ANZ_433 = 22,
+  REGION_KZ_433 = 23,
+  REGION_KZ_863 = 24,
+  REGION_NP_865 = 25,
+  REGION_BR_902 = 26,
+  REGION_ITU1_2M = 27,
+  REGION_ITU2_2M = 28,
+  REGION_EU_866 = 29,
+  REGION_EU_874 = 30,
+  REGION_EU_917 = 31,
+  REGION_EU_N_868 = 32,
+  REGION_ITU3_2M = 33,
+  REGION_ITU1_70CM = 34,
+  REGION_ITU2_70CM = 35,
+  REGION_ITU3_70CM = 36,
+  REGION_ITU2_125CM = 37,
+};
 
-/// Modem preset using protobuf enum
-using ModemPreset = meshtastic_Config_LoRaConfig_ModemPreset;
+enum ModemPreset : uint8_t {
+  PRESET_LONG_FAST = 0,
+  PRESET_LONG_SLOW = 1,
+  PRESET_VERY_LONG_SLOW = 2,
+  PRESET_MEDIUM_SLOW = 3,
+  PRESET_MEDIUM_FAST = 4,
+  PRESET_SHORT_SLOW = 5,
+  PRESET_SHORT_FAST = 6,
+  PRESET_LONG_MODERATE = 7,
+  PRESET_SHORT_TURBO = 8,
+  PRESET_LONG_TURBO = 9,
+  PRESET_LITE_FAST = 10,
+  PRESET_LITE_SLOW = 11,
+  PRESET_NARROW_FAST = 12,
+  PRESET_NARROW_SLOW = 13,
+  PRESET_TINY_FAST = 14,
+  PRESET_TINY_SLOW = 15,
+  PRESET_MEDIUM_TURBO = 16,
+};
 
 // ============================================================================
 // Constants
@@ -126,10 +184,6 @@ enum class RadioType {
   LR1120, ///< LR1120 (sub-GHz)
   LR1121  ///< LR1121 (sub-GHz)
 };
-
-// Note: ModemPreset is now defined in MeshRegion.h using the protobuf enum
-// Use libmeshtastic_leaf::ModemPreset (alias for
-// meshtastic_Config_LoRaConfig_ModemPreset)
 
 /// Packet reception result
 enum class ReceiveResult {
@@ -273,10 +327,9 @@ struct RadioConfig {
   float tcxoVoltage;  ///< TCXO voltage (0 to disable)
 
   RadioConfig()
-      : type(RadioType::SX1262),
-        region(meshtastic_Config_LoRaConfig_RegionCode_US), frequency(0.0f),
-        txPower(0), preset(meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST),
-        csPin(0), irqPin(0), rstPin(0), busyPin(0), tcxoVoltage(0.0f) {}
+      : type(RadioType::SX1262), region(REGION_US), frequency(0.0f), txPower(0),
+        preset(PRESET_LONG_FAST), csPin(0), irqPin(0), rstPin(0), busyPin(0),
+        tcxoVoltage(0.0f) {}
 };
 
 /**

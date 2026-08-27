@@ -27,5 +27,8 @@
     "jgromes/RadioLib": "^7.7.1",
     "nanopb/Nanopb": "^0.4.91",
     "rweather/Crypto": "^0.4.0"
+  },
+  "build": {
+    "flags": ["-I src/generated"]
   }
 }
