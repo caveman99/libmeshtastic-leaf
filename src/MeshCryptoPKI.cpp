@@ -6,6 +6,10 @@
 #include "MeshCryptoPKI.h"
 #include "aes-ccm.h"
 
+// Curve25519::isWeakPoint() is private unless this is defined before the
+// header is pulled in. The firmware does the same thing in CryptoEngine.h.
+#define TEST_CURVE25519_FIELD_OPS
+
 #include <Curve25519.h>
 #include <RNG.h>
 #include <SHA256.h>
@@ -32,11 +36,14 @@ MeshCryptoPKI::~MeshCryptoPKI() {
 
 void MeshCryptoPKI::generateKeyPair(uint8_t pubKey[32], uint8_t privKey[32]) {
   // Initialize RNG with some entropy
-  RNG.begin("libmeshtastic_leaf");
+  // meshtastic/Crypto renames the rweather RNG global to CryptRNG because
+  // some toolchains (STM32, RP2040) declare an unnamespaced RNG of their own
+  // and collide with it.
+  CryptRNG.begin("libmeshtastic_leaf");
 
   // Add some additional entropy from random()
   uint32_t noise = random();
-  RNG.stir((uint8_t *)&noise, sizeof(noise));
+  CryptRNG.stir((uint8_t *)&noise, sizeof(noise));
 
   // Generate keypair using Curve25519
   // dh1() generates a random private key and derives the public key

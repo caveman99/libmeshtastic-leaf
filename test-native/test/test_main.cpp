@@ -11,8 +11,8 @@
 #include <cstring>
 
 // Include library headers
-#include "../src/MeshRegion.h"
-#include "../src/MeshTypes.h"
+#include "MeshRegion.h"
+#include "MeshTypes.h"
 
 using namespace libmeshtastic_leaf;
 

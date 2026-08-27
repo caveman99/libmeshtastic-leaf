@@ -12,14 +12,22 @@
  *
  * libmeshtastic_leaf::libmeshtastic_leaf mesh;
  *
+ * SX1262 radio(new Module(NSS, DIO1, RST, BUSY));
+ *
  * void setup() {
+ *     // the sketch owns chip-specific bring-up: pins, TCXO, CRC, current
+ *     // limit, RF switch. Meshtastic requires LoRa CRC to be enabled.
+ *     radio.begin();
+ *     radio.setCRC(2);
+ *
  *     libmeshtastic_leaf::MeshConfig config;
  *     // Get node number from hardware (MAC address)
  *     config.nodeNum = libmeshtastic_leaf::MeshNodeId::getNodeNum();
- *     config.radio.type = libmeshtastic_leaf::RadioType::SX1262;
- *     config.radio.frequency = 906.875f;
- *     // ... configure other settings
+ *     config.radio.region = libmeshtastic_leaf::REGION_EU_868;
+ *     config.radio.preset = libmeshtastic_leaf::PRESET_LONG_FAST;
  *
+ *     // the library applies frequency, SF/BW/CR, sync word, preamble and
+ *     // power itself, through the generic RadioLib PhysicalLayer API
  *     mesh.begin(config, &radio);
  *     mesh.setDefaultChannel();
  * }
@@ -47,13 +55,10 @@
 #include "MeshPacket.h"
 #include "MeshRegion.h"
 #include "MeshTypes.h"
-#include "radio/MeshRadio.h"
 
-// Include all radio drivers for convenience
-#include "radio/MeshRadioLR11x0.h"
-#include "radio/MeshRadioSX126x.h"
-#include "radio/MeshRadioSX127x.h"
-#include "radio/MeshRadioSX128x.h"
+// Any RadioLib LoRa radio is driven through the generic PhysicalLayer API,
+// so this library needs no per-chip driver of its own.
+#include <RadioLib.h>
 
 namespace libmeshtastic_leaf {
 
@@ -78,11 +83,18 @@ public:
   /**
    * @brief Initialize the library with a radio driver
    *
-   * @param config Library configuration (node number, radio settings, etc.)
-   * @param radio Pointer to an initialized radio driver
+   * The caller is responsible for constructing the RadioLib radio and doing
+   * the chip-specific bring-up first (pins, TCXO, current limit, RF switch,
+   * and enabling LoRa CRC, which Meshtastic requires). This method then
+   * applies the Meshtastic RF policy for the configured region and preset:
+   * frequency, spreading factor, bandwidth, coding rate, sync word, preamble
+   * length and transmit power.
+   *
+   * @param config Library configuration (node number, region, preset)
+   * @param phy Pointer to an already-initialized RadioLib LoRa radio
    * @return true if initialization succeeded
    */
-  bool begin(const MeshConfig &config, MeshRadio *radio);
+  bool begin(const MeshConfig &config, PhysicalLayer *phy);
 
   /**
    * @brief Shut down the library and radio
@@ -272,11 +284,11 @@ public:
   NodeNum getNodeNum() const { return config_.nodeNum; }
 
   /**
-   * @brief Get the radio driver
+   * @brief Get the underlying RadioLib radio
    *
-   * @return Pointer to radio driver, or nullptr if not initialized
+   * @return Pointer to the radio, or nullptr if not initialized
    */
-  MeshRadio *getRadio() { return radio_; }
+  PhysicalLayer *getRadio() { return phy_; }
 
   // ========================================================================
   // Advanced
@@ -298,7 +310,7 @@ public:
 
 private:
   MeshConfig config_;
-  MeshRadio *radio_;
+  PhysicalLayer *phy_;
   MeshChannel channel_;
   MeshCryptoPKI pki_;
   PKIKeyLookup pkiKeyLookup_;
@@ -309,6 +321,11 @@ private:
   uint8_t rxBuffer_[MAX_LORA_PAYLOAD_LEN];
   size_t rxLen_;
   bool rxPending_;
+  int16_t lastRssi_;
+  float lastSnr_;
+
+  // Apply the Meshtastic RF policy for the configured region and preset
+  bool applyRfConfig();
 
   // Transmission
   uint32_t sendPacket(PacketHeader &header, const uint8_t *payload, size_t len,

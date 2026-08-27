@@ -30,7 +30,6 @@
 
 // Create RadioLib module and libmeshtastic_leaf instances
 SX1262 radio = new Module(LORA_CS, LORA_IRQ, LORA_RST, LORA_BUSY);
-libmeshtastic_leaf::MeshRadioSX1262 meshRadio(&radio);
 libmeshtastic_leaf::libmeshtastic_leaf mesh;
 
 // Timing for periodic transmission
@@ -49,7 +48,6 @@ void setup() {
 
     // Configure the radio using region helpers
     libmeshtastic_leaf::RadioConfig radioConfig;
-    radioConfig.type = libmeshtastic_leaf::RadioType::SX1262;
     radioConfig.region = libmeshtastic_leaf::REGION_US;  // Set your region
     radioConfig.preset = libmeshtastic_leaf::PRESET_LONG_FAST;
 
@@ -57,18 +55,19 @@ void setup() {
     radioConfig.frequency = libmeshtastic_leaf::MeshRegion::getDefaultFrequency(radioConfig.region);
     radioConfig.txPower = libmeshtastic_leaf::MeshRegion::getPowerLimit(radioConfig.region);
 
-    // Pin configuration
-    radioConfig.csPin = LORA_CS;
-    radioConfig.irqPin = LORA_IRQ;
-    radioConfig.rstPin = LORA_RST;
-    radioConfig.busyPin = LORA_BUSY;
-    radioConfig.tcxoVoltage = 1.8f;    // Adjust for your module (0 if no TCXO)
 
-    // Initialize the radio driver
-    if (!meshRadio.begin(radioConfig)) {
-        Serial.println("ERROR: Failed to initialize radio!");
+    // Chip-specific bring-up is the sketch's job. The library only speaks
+    // the generic RadioLib PhysicalLayer API, so it never needs to know
+    // which radio this is.
+    int st = radio.begin();
+    if (st != RADIOLIB_ERR_NONE) {
+        Serial.print("ERROR: radio.begin() failed: ");
+        Serial.println(st);
         while (1) { delay(1000); }
     }
+    radio.setTCXO(1.8f);              // adjust for your module, omit if none
+    radio.setCRC(2);                  // Meshtastic requires LoRa CRC
+    radio.setCurrentLimit(140.0f);
 
     // Configure the library
     libmeshtastic_leaf::MeshConfig meshConfig;
@@ -78,7 +77,7 @@ void setup() {
     meshConfig.hopLimit = 3;
 
     // Initialize libmeshtastic_leaf
-    if (!mesh.begin(meshConfig, &meshRadio)) {
+    if (!mesh.begin(meshConfig, &radio)) {
         Serial.println("ERROR: Failed to initialize libmeshtastic_leaf!");
         while (1) { delay(1000); }
     }

@@ -19,6 +19,12 @@
 #include "MeshTypes.h"
 #include <stdint.h>
 
+#if defined(ARDUINO)
+// the platform branches below call micros() and friends directly, so this
+// header has to pull Arduino.h in itself rather than rely on the sketch
+#include <Arduino.h>
+#endif
+
 namespace libmeshtastic_leaf {
 
 /**

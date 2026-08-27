@@ -26,7 +26,7 @@
   "dependencies": {
     "jgromes/RadioLib": "^7.7.1",
     "nanopb/Nanopb": "^0.4.91",
-    "rweather/Crypto": "^0.4.0"
+    "meshtastic/Crypto": "https://github.com/meshtastic/Crypto/archive/591ff9a690e8168ccb7a36abde8d7783e448d395.zip"
   },
   "build": {
     "flags": ["-I src/generated"]

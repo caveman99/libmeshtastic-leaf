@@ -172,19 +172,6 @@ using ChannelHash = uint8_t;
 // Enums
 // ============================================================================
 
-/// Radio chip types supported by the library
-enum class RadioType {
-  SX1262, ///< SX1262 (sub-GHz)
-  SX1268, ///< SX1268 (sub-GHz)
-  LLCC68, ///< LLCC68 (compatible with SX126x)
-  SX1276, ///< SX1276 (sub-GHz, older)
-  SX1278, ///< SX1278 (sub-GHz, older)
-  SX1280, ///< SX1280 (2.4GHz)
-  LR1110, ///< LR1110 (sub-GHz + GNSS)
-  LR1120, ///< LR1120 (sub-GHz)
-  LR1121  ///< LR1121 (sub-GHz)
-};
-
 /// Packet reception result
 enum class ReceiveResult {
   OK,              ///< Packet received and decrypted successfully
@@ -315,21 +302,14 @@ struct MeshPacket {
  * @brief Radio configuration structure
  */
 struct RadioConfig {
-  RadioType type;     ///< Radio chip type
   RegionCode region;  ///< Region code (for frequency/power lookup)
   float frequency;    ///< Center frequency in MHz (0 = auto from region)
   int8_t txPower;     ///< Transmit power in dBm (0 = auto from region)
   ModemPreset preset; ///< Modem preset
-  uint8_t csPin;      ///< Chip select pin
-  uint8_t irqPin;     ///< IRQ pin (DIO0/DIO1)
-  uint8_t rstPin;     ///< Reset pin
-  uint8_t busyPin;    ///< Busy pin (for SX126x/LR11x0)
-  float tcxoVoltage;  ///< TCXO voltage (0 to disable)
 
   RadioConfig()
-      : type(RadioType::SX1262), region(REGION_US), frequency(0.0f), txPower(0),
-        preset(PRESET_LONG_FAST), csPin(0), irqPin(0), rstPin(0), busyPin(0),
-        tcxoVoltage(0.0f) {}
+      : region(REGION_US), frequency(0.0f), txPower(0),
+        preset(PRESET_LONG_FAST) {}
 };
 
 /**

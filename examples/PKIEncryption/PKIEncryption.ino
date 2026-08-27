@@ -25,7 +25,6 @@
 
 // Create instances
 SX1262 radio = new Module(LORA_CS, LORA_IRQ, LORA_RST, LORA_BUSY);
-libmeshtastic_leaf::MeshRadioSX1262 meshRadio(&radio);
 libmeshtastic_leaf::libmeshtastic_leaf mesh;
 
 // Our keypair (in a real app, store these securely in NVS/EEPROM)
@@ -88,16 +87,22 @@ void setup() {
 
     // Configure radio using region helpers
     libmeshtastic_leaf::RadioConfig radioConfig;
-    radioConfig.type = libmeshtastic_leaf::RadioType::SX1262;
     radioConfig.region = libmeshtastic_leaf::REGION_US;  // Set your region
     radioConfig.preset = libmeshtastic_leaf::PRESET_LONG_FAST;
     radioConfig.frequency = libmeshtastic_leaf::MeshRegion::getDefaultFrequency(radioConfig.region);
     radioConfig.txPower = libmeshtastic_leaf::MeshRegion::getPowerLimit(radioConfig.region);
 
-    if (!meshRadio.begin(radioConfig)) {
-        Serial.println("ERROR: Radio init failed!");
+    // Chip-specific bring-up is the sketch's job. The library only speaks
+    // the generic RadioLib PhysicalLayer API.
+    int st = radio.begin();
+    if (st != RADIOLIB_ERR_NONE) {
+        Serial.print("ERROR: radio.begin() failed: ");
+        Serial.println(st);
         while (1) delay(1000);
     }
+    radio.setTCXO(1.8f);              // adjust for your module, omit if none
+    radio.setCRC(2);                  // Meshtastic requires LoRa CRC
+    radio.setCurrentLimit(140.0f);
 
     // Configure mesh
     libmeshtastic_leaf::MeshConfig meshConfig;
@@ -106,7 +111,7 @@ void setup() {
     meshConfig.nodeNum = libmeshtastic_leaf::MeshNodeId::getNodeNum();
     meshConfig.hopLimit = 3;
 
-    if (!mesh.begin(meshConfig, &meshRadio)) {
+    if (!mesh.begin(meshConfig, &radio)) {
         Serial.println("ERROR: Mesh init failed!");
         while (1) delay(1000);
     }

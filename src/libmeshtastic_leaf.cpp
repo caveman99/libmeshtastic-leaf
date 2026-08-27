@@ -8,27 +8,42 @@
 
 namespace libmeshtastic_leaf {
 
+// RadioLib packet callbacks take a plain void(*)(void) with no context
+// pointer, so the received flag has to live at file scope. This mirrors what
+// LoRaWANNode does and means one active instance per process.
+static volatile bool packetReceivedFlag = false;
+
+static void onPacketReceived() { packetReceivedFlag = true; }
+
 libmeshtastic_leaf::libmeshtastic_leaf()
-    : radio_(nullptr), pkiKeyLookup_(nullptr), receiveCallback_(nullptr),
-      initialized_(false), rxLen_(0), rxPending_(false) {
+    : phy_(nullptr), pkiKeyLookup_(nullptr), receiveCallback_(nullptr),
+      initialized_(false), rxLen_(0), rxPending_(false), lastRssi_(0),
+      lastSnr_(0.0f) {
   memset(rxBuffer_, 0, sizeof(rxBuffer_));
 }
 
 libmeshtastic_leaf::~libmeshtastic_leaf() { end(); }
 
-bool libmeshtastic_leaf::begin(const MeshConfig &config, MeshRadio *radio) {
-  if (radio == nullptr) {
+bool libmeshtastic_leaf::begin(const MeshConfig &config, PhysicalLayer *phy) {
+  if (phy == nullptr) {
     return false;
   }
 
   config_ = config;
-  radio_ = radio;
+  phy_ = phy;
+
+  // Apply frequency, modem parameters, sync word, preamble and power
+  if (!applyRfConfig()) {
+    return false;
+  }
 
   // Initialize with default channel
   setDefaultChannel();
 
   // Start receiving
-  if (!radio_->startReceive()) {
+  packetReceivedFlag = false;
+  phy_->setPacketReceivedAction(onPacketReceived);
+  if (phy_->startReceive() != RADIOLIB_ERR_NONE) {
     return false;
   }
 
@@ -36,12 +51,52 @@ bool libmeshtastic_leaf::begin(const MeshConfig &config, MeshRadio *radio) {
   return true;
 }
 
+bool libmeshtastic_leaf::applyRfConfig() {
+  const RadioConfig &rf = config_.radio;
+
+  const bool wideLora = MeshRegion::isWideLoRa(rf.region);
+  const ModemParams params = MeshRegion::getModemParams(rf.preset, wideLora);
+
+  // SF, bandwidth and coding rate are set atomically. Every RadioLib LoRa
+  // driver implements this, so no per-chip code is needed here.
+  DataRate_t dr = {};
+  dr.lora.spreadingFactor = params.sf;
+  dr.lora.bandwidth = params.bw;
+  dr.lora.codingRate = params.cr;
+  if (phy_->setDataRate(dr, RADIOLIB_MODEM_LORA) != RADIOLIB_ERR_NONE) {
+    return false;
+  }
+
+  const float freq = rf.frequency > 0.0f
+                         ? rf.frequency
+                         : MeshRegion::getDefaultFrequency(rf.region);
+  if (phy_->setFrequency(freq) != RADIOLIB_ERR_NONE) {
+    return false;
+  }
+
+  // A one-byte sync word maps to the LoRa sync word on every driver
+  uint8_t syncWord = MESHTASTIC_SYNC_WORD;
+  if (phy_->setSyncWord(&syncWord, 1) != RADIOLIB_ERR_NONE) {
+    return false;
+  }
+
+  if (phy_->setPreambleLength(DEFAULT_PREAMBLE_LENGTH) != RADIOLIB_ERR_NONE) {
+    return false;
+  }
+
+  int8_t power =
+      rf.txPower != 0 ? rf.txPower : MeshRegion::getPowerLimit(rf.region);
+  phy_->checkOutputPower(power, &power);
+  return phy_->setOutputPower(power) == RADIOLIB_ERR_NONE;
+}
+
 void libmeshtastic_leaf::end() {
-  if (radio_) {
-    radio_->sleep();
+  if (phy_) {
+    phy_->clearPacketReceivedAction();
+    phy_->sleep();
   }
   initialized_ = false;
-  radio_ = nullptr;
+  phy_ = nullptr;
 }
 
 bool libmeshtastic_leaf::setChannel(const uint8_t *psk, size_t pskLen,
@@ -137,7 +192,7 @@ uint32_t libmeshtastic_leaf::sendPacket(PacketHeader &header,
                                         const uint8_t *payload, size_t len,
                                         bool usePKI,
                                         const uint8_t *remotePubKey) {
-  if (!initialized_ || radio_ == nullptr) {
+  if (!initialized_ || phy_ == nullptr) {
     return 0;
   }
 
@@ -168,24 +223,35 @@ uint32_t libmeshtastic_leaf::sendPacket(PacketHeader &header,
   }
 
   // Transmit
-  if (!radio_->transmit(txBuffer, txLen)) {
+  if (phy_->transmit(txBuffer, txLen) != RADIOLIB_ERR_NONE) {
     return 0;
   }
 
   // Restart receive mode
-  radio_->startReceive();
+  packetReceivedFlag = false;
+  phy_->startReceive();
 
   return header.id;
 }
 
 void libmeshtastic_leaf::update() {
-  if (!initialized_ || radio_ == nullptr) {
+  if (!initialized_ || phy_ == nullptr) {
     return;
   }
 
   // Check for received packet
-  if (radio_->available() && !rxPending_) {
-    if (radio_->readPacket(rxBuffer_, sizeof(rxBuffer_), rxLen_)) {
+  if (packetReceivedFlag && !rxPending_) {
+    packetReceivedFlag = false;
+
+    size_t len = phy_->getPacketLength();
+    if (len > sizeof(rxBuffer_)) {
+      len = sizeof(rxBuffer_);
+    }
+
+    if (len > 0 && phy_->readData(rxBuffer_, len) == RADIOLIB_ERR_NONE) {
+      rxLen_ = len;
+      lastRssi_ = phy_->getRSSI();
+      lastSnr_ = phy_->getSNR();
       rxPending_ = true;
 
       // If callback is set, process immediately
@@ -198,7 +264,7 @@ void libmeshtastic_leaf::update() {
     }
 
     // Restart receive mode
-    radio_->startReceive();
+    phy_->startReceive();
   }
 }
 
@@ -237,8 +303,8 @@ ReceiveResult libmeshtastic_leaf::receive(MeshPacket &packet) {
         rxBuffer_, rxLen_, pki_, senderPubKey, packet);
 
     if (result == ReceiveResult::OK) {
-      packet.rxRssi = radio_->getRSSI();
-      packet.rxSnr = radio_->getSNR();
+      packet.rxRssi = lastRssi_;
+      packet.rxSnr = lastSnr_;
       // Note: packet.rxTime would need millis() from Arduino
 
       // Decode the Data message
@@ -267,8 +333,8 @@ ReceiveResult libmeshtastic_leaf::receive(MeshPacket &packet) {
         MeshPacketCodec::decodePacket(rxBuffer_, rxLen_, channel_, packet);
 
     if (result == ReceiveResult::OK) {
-      packet.rxRssi = radio_->getRSSI();
-      packet.rxSnr = radio_->getSNR();
+      packet.rxRssi = lastRssi_;
+      packet.rxSnr = lastSnr_;
 
       // Decode the Data message
       meshtastic_PortNum portNum;
@@ -292,7 +358,9 @@ void libmeshtastic_leaf::onReceive(PacketCallback callback) {
 }
 
 bool libmeshtastic_leaf::isTransmitting() const {
-  return radio_ != nullptr && radio_->isTransmitting();
+  // transmit() is blocking today, so this is never true from the outside.
+  // ponytail: becomes real when the MAC layer moves to startTransmit().
+  return false;
 }
 
 } // namespace libmeshtastic_leaf
