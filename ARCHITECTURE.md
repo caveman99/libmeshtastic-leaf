@@ -146,10 +146,3 @@ BLE and MQTT sides, none of which exist here.
 `bin/regen-protos.py` rather than copied, so the `protobufs` submodule stays
 the single source of truth. Only one translation unit, `MeshPacket.cpp`,
 includes the generated header.
-
-## Licensing
-
-The library is GPL-3.0-only because it carries code derived from the Meshtastic
-firmware, which is GPL-3.0. It therefore cannot be merged into RadioLib, which
-is MIT and carries no dependencies. RadioLib is consumed as a dependency
-instead.
