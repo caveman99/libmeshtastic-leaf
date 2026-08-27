@@ -2,10 +2,16 @@ name: Release
 
 # Manual only. Bumps the version everywhere it is hardcoded, regenerates the
 # protobufs, verifies the result, then tags and publishes.
+#
+# The work is split so that the write-scoped token is never in the same job as
+# repository code. "verify" runs every script and build with a read-only token
+# and emits a patch; "publish" applies that patch and runs nothing but git and
+# gh. A poisoned bin/version.py or platformio.ini therefore cannot reach a
+# token that can write to the repository.
 on:
   # checkov:skip=CKV_GHA_7:a release has to be told which version to cut; the
-  # inputs are a version string and two booleans, all used as data, never as
-  # part of a build command.
+  # inputs are a version string and two booleans, all validated and passed
+  # through the environment, never interpolated into a shell command.
   workflow_dispatch:
     inputs:
       version:
@@ -21,32 +27,42 @@ on:
         type: boolean
         default: false
 
-permissions:
-  contents: write
+permissions: {}
 
 env:
   NANOPB_VERSION: 0.4.9.1
 
 jobs:
-  release:
-    name: Release ${{ inputs.version }}
+  verify:
+    name: Build ${{ inputs.version }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           submodules: true
           fetch-depth: 0
+          persist-credentials: false
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.11"
-
-      - name: Reject a version that already exists
+      # Validated in the shell, before any repository code runs, so a hostile
+      # value cannot reach the steps below.
+      - name: Validate version
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          if git rev-parse -q --verify "refs/tags/v${{ inputs.version }}" >/dev/null; then
-            echo "::error::tag v${{ inputs.version }} already exists"
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::not a MAJOR.MINOR.PATCH version: $VERSION"
             exit 1
           fi
+          if git rev-parse -q --verify "refs/tags/v${VERSION}" > /dev/null; then
+            echo "::error::tag v${VERSION} already exists"
+            exit 1
+          fi
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
 
       - name: Install tooling
         run: pip install platformio "nanopb==${NANOPB_VERSION}" grpcio-tools
@@ -59,13 +75,13 @@ jobs:
 
       # Fails if upstream Data has gained a field that the trimmed
       # proto/meshtastic/leafdata.proto does not have yet.
-      # No NANOPB_PLUGIN here on purpose: protoc needs an absolute path, and
-      # regen-protos.sh resolves one with command -v.
       - name: Regenerate protobufs
         run: bin/regen-protos.sh
 
       - name: Set version
-        run: python bin/version.py --set "${{ inputs.version }}"
+        env:
+          VERSION: ${{ inputs.version }}
+        run: python bin/version.py --set "$VERSION"
 
       - name: Verify version references
         run: python bin/version.py --check
@@ -82,29 +98,64 @@ jobs:
             echo "::endgroup::"
           done
 
-      - name: Show what changed
-        run: git --no-pager diff --stat
+      # --binary so new files and the submodule pointer survive the round trip.
+      - name: Capture the release diff
+        run: |
+          git add -A
+          git diff --cached --binary > release.patch
+          git --no-pager diff --cached --stat
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-patch
+          path: release.patch
+          retention-days: 1
+
+  publish:
+    name: Publish ${{ inputs.version }}
+    needs: verify
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # No submodules and no repository scripts run in this job. The only
+      # things executed here are git and gh.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-patch
+
+      - name: Apply the release diff
+        run: |
+          git apply --index --binary release.patch
+          rm release.patch
+          git --no-pager diff --cached --stat
 
       - name: Commit, tag and push
-        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet; then
+          if git diff --cached --quiet; then
             echo "nothing to commit; tagging the current commit"
           else
-            git add -A
-            git commit -m "Release ${{ inputs.version }}"
+            git commit -m "Release ${VERSION}"
           fi
-          git tag -a "v${{ inputs.version }}" -m "Release ${{ inputs.version }}"
-          git push origin HEAD:${{ github.ref_name }}
-          git push origin "v${{ inputs.version }}"
+          git tag -a "v${VERSION}" -m "Release ${VERSION}"
+          # Pass the token as a header rather than persisting it in
+          # .git/config or embedding it in a remote URL.
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.extraheader=AUTHORIZATION: basic ${auth}" \
+            push origin "HEAD:${GITHUB_REF_NAME}" "v${VERSION}"
 
       - name: Publish release
-        if: ${{ !inputs.dry_run }}
         env:
+          VERSION: ${{ inputs.version }}
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "v${{ inputs.version }}" \
-            --title "v${{ inputs.version }}" \
-            --generate-notes
+        run: gh release create "v${VERSION}" --title "v${VERSION}" --generate-notes

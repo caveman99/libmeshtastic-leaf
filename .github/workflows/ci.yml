@@ -1,6 +1,18 @@
 name: CI
 
 # Runs on every pull request, and again on main after the merge commit lands.
+#
+# Security notes, since every job here executes code from the repository
+# (regen-protos.sh, version.py, and PlatformIO, which runs extra_scripts from
+# platformio.ini):
+#
+#   - the trigger is pull_request, never pull_request_target, so a pull request
+#     from a fork gets a read-only token and no secrets
+#   - permissions are denied at the top and granted per job
+#   - persist-credentials is off, so the token is never written into
+#     .git/config where a later step could read it back out
+#   - actions are pinned to a commit, so a moved tag cannot swap the code that
+#     runs alongside the token. Dependabot updates the pins.
 on:
   pull_request:
   push:
@@ -11,8 +23,7 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-permissions:
-  contents: read
+permissions: {}
 
 env:
   # The generator version decides the exact bytes of the committed nanopb
@@ -24,18 +35,25 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-      - uses: trunk-io/trunk-action@v1
+          persist-credentials: false
+      - uses: trunk-io/trunk-action@04ba50e7658c81db7356da96657e6e77f220bfa3 # v1
 
   version-refs:
     name: Version references
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.11"
       - name: library.properties and example lib_deps match library.json
@@ -44,11 +62,14 @@ jobs:
   protos:
     name: Generated protobufs are current
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           submodules: true
-      - uses: actions/setup-python@v7
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.11"
       - name: Install nanopb generator
@@ -67,12 +88,16 @@ jobs:
   native-test:
     name: Host unit tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.11"
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.platformio
           key: pio-native-${{ hashFiles('test-native/platformio.ini') }}
@@ -87,10 +112,14 @@ jobs:
   list-examples:
     name: Collect examples
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       examples: ${{ steps.find.outputs.examples }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - id: find
         run: |
           examples=$(find examples -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | jq -R . | jq -sc .)
@@ -101,21 +130,29 @@ jobs:
     name: Build ${{ matrix.example }}
     needs: list-examples
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
         example: ${{ fromJSON(needs.list-examples.outputs.examples) }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.11"
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.platformio
           key: pio-example-${{ hashFiles('examples/*/platformio.ini', 'library.json') }}
           restore-keys: pio-example-
       - run: pip install platformio
+      # matrix.example comes from a directory listing in this repository, but
+      # it still goes through the environment rather than being interpolated
+      # into the shell.
       - name: pio run
-        working-directory: examples/${{ matrix.example }}
-        run: pio run
+        env:
+          EXAMPLE: ${{ matrix.example }}
+        run: cd "examples/${EXAMPLE}" && pio run
