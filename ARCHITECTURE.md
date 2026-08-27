@@ -50,6 +50,7 @@ Only then does it hand the radio to `begin(config, &radio)`.
 | Channel crypto | PSK expansion, channel hash, AES-CTR with the Meshtastic nonce layout                              |
 | PKI            | X25519 to SHA256 to AES-256-CCM, and the 12 byte wire overhead                                     |
 | Payload        | `Data` encoding and decoding, portnum dispatch                                                     |
+| MAC            | carrier sense, contention window, airtime accounting, duty cycle gate                              |
 
 ### Not a leaf, never port these
 
@@ -59,10 +60,28 @@ state machine, configuration persistence, admin messages.
 
 ### Still missing
 
-The MAC layer: carrier sense, contention window, airtime accounting, duty
-cycle, and duplicate suppression. Duty cycle enforcement belongs in the send
-path, not in the radio configuration. See the status section in
-[README.md](README.md).
+Duplicate suppression, acknowledgement and retransmission, and dwell time
+limiting. See the status section in [README.md](README.md).
+
+## Transmission
+
+`send*()` stages one frame and returns; `update()` drives it. The states are
+backoff, then carrier sense, then transmit, and a frame is refused outright if
+it would take the hour's transmit airtime past the duty cycle limit.
+
+Two airtime windows, because they answer different questions. Our own
+transmissions over a rolling hour give the duty cycle. Everything heard plus
+everything sent over the last minute gives channel utilisation, which sizes the
+contention window between `cwMin` and `cwMax`.
+
+Slot time is `max(2.25, NUM_SYM_CAD + 0.5) * 2^SF / BW` plus 7.6 ms for
+propagation, turnaround and processing. On LongFast that is about 28 ms, so an
+idle channel backs off up to about 200 ms and a saturated one up to about 7
+seconds. That is why staging and returning is the only workable shape for
+`send*()`.
+
+Policy that stays with the application: region choice, licensed or exempt
+status, and what to do when a send is refused.
 
 ## Wire formats
 
@@ -127,14 +146,19 @@ touches NVS, EEPROM or a filesystem.
 
 ## Interrupts
 
-Reception is driven by `setPacketReceivedAction` with a file scope flag, and
-drained from `update()`. RadioLib callbacks take a plain `void(*)(void)` with
-no context pointer, so the flag cannot live in the instance. One active
-instance per process.
+Reception and transmission share one interrupt. On SX126x both
+`setPacketReceivedAction()` and `setPacketSentAction()` install the same DIO1
+action, so there is a single flag, and the transmit state decides what it
+means. `update()` services transmission first and only looks for a received
+packet when no transmission is in flight.
 
-There is no RTOS dependency and no thread. A single pending interrupt flag can
-drop a second event that arrives before the first is consumed, so a MAC layer
-added here needs a periodic poll as a backstop.
+RadioLib callbacks take a plain `void(*)(void)` with no context pointer, so the
+flag cannot live in the instance. One active instance per process.
+
+There is no RTOS dependency and no thread. A single flag can drop a second
+event that arrives before the first is consumed, so a transmission also carries
+a deadline of twice its time on air plus 500 ms as a backstop against a missed
+interrupt.
 
 ## Protobufs
 

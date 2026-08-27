@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "MeshAirtime.h"
 #include "MeshRegion.h"
 #include "MeshTypes.h"
 
@@ -280,11 +281,97 @@ TEST(flag_masks) {
   ASSERT_EQ(PACKET_FLAGS_HOP_START_SHIFT, 5);
 }
 
+TEST(airtime_starts_empty) {
+  MeshAirtime air;
+  air.reset(0);
+  ASSERT_EQ(air.txMsecLastHour(), 0u);
+  ASSERT_TRUE(air.txUtilizationPercent() == 0.0f);
+  ASSERT_TRUE(air.channelUtilizationPercent() == 0.0f);
+}
+
+TEST(airtime_tx_counts_towards_duty_cycle) {
+  MeshAirtime air;
+  air.reset(0);
+  // 1% of an hour is 36 seconds.
+  air.logTx(0, 36000);
+  ASSERT_EQ(air.txMsecLastHour(), 36000u);
+  float pct = air.txUtilizationPercent();
+  ASSERT_TRUE(pct > 0.99f && pct < 1.01f);
+}
+
+TEST(airtime_rx_excluded_from_duty_cycle) {
+  MeshAirtime air;
+  air.reset(0);
+  air.logRx(0, 36000);
+  ASSERT_EQ(air.txMsecLastHour(), 0u);
+  ASSERT_TRUE(air.txUtilizationPercent() == 0.0f);
+  // but it does occupy the channel
+  ASSERT_TRUE(air.channelUtilizationPercent() > 0.0f);
+}
+
+TEST(airtime_tx_expires_after_an_hour) {
+  MeshAirtime air;
+  air.reset(0);
+  air.logTx(0, 36000);
+  air.advance(59UL * 60UL * 1000UL);
+  ASSERT_EQ(air.txMsecLastHour(), 36000u);
+  air.advance(61UL * 60UL * 1000UL);
+  ASSERT_EQ(air.txMsecLastHour(), 0u);
+}
+
+TEST(airtime_channel_window_is_one_minute) {
+  MeshAirtime air;
+  air.reset(0);
+  air.logRx(0, 6000); // 10% of a minute
+  float pct = air.channelUtilizationPercent();
+  ASSERT_TRUE(pct > 9.9f && pct < 10.1f);
+  air.advance(61UL * 1000UL);
+  ASSERT_TRUE(air.channelUtilizationPercent() == 0.0f);
+}
+
+TEST(airtime_survives_a_long_idle_gap) {
+  MeshAirtime air;
+  air.reset(0);
+  air.logTx(0, 36000);
+  // more than a full hour of silence must not wrap the ring back onto itself
+  air.advance(5UL * 60UL * 60UL * 1000UL);
+  ASSERT_EQ(air.txMsecLastHour(), 0u);
+}
+
+// Slot time drives the contention window. Mirrors computeSlotTimeMsec():
+// max(2.25, NUM_SYM_CAD + 0.5) * 2^SF / BW + 7.6 ms.
+static uint32_t slotTimeFor(ModemPreset preset) {
+  ModemParams p = MeshRegion::getModemParams(preset, false);
+  float symbolMsec = (float)(1UL << p.sf) / p.bw;
+  return (uint32_t)(2.5f * symbolMsec + 7.6f);
+}
+
+TEST(slot_time_long_fast) {
+  // SF11 at 250 kHz: symbol is 8.192 ms, so the slot is about 28 ms.
+  uint32_t slot = slotTimeFor(PRESET_LONG_FAST);
+  ASSERT_TRUE(slot >= 27 && slot <= 29);
+}
+
+TEST(slot_time_shorter_for_faster_preset) {
+  ASSERT_TRUE(slotTimeFor(PRESET_SHORT_FAST) < slotTimeFor(PRESET_LONG_FAST));
+}
+
 int main() {
   printf("libmeshtastic_leaf Unit Tests\n");
   printf("=========================\n\n");
 
   printf("MeshTypes Tests:\n");
+  printf("MeshAirtime Tests:\n");
+  RUN_TEST(airtime_starts_empty);
+  RUN_TEST(airtime_tx_counts_towards_duty_cycle);
+  RUN_TEST(airtime_rx_excluded_from_duty_cycle);
+  RUN_TEST(airtime_tx_expires_after_an_hour);
+  RUN_TEST(airtime_channel_window_is_one_minute);
+  RUN_TEST(airtime_survives_a_long_idle_gap);
+  RUN_TEST(slot_time_long_fast);
+  RUN_TEST(slot_time_shorter_for_faster_preset);
+
+  printf("\nMeshTypes Tests:\n");
   RUN_TEST(constants);
   RUN_TEST(default_psk);
   RUN_TEST(crypto_key_default);

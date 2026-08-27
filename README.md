@@ -11,13 +11,13 @@ two sits, and what this library deliberately does not do.
 ## Status
 
 Working: packet framing, channel (PSK) encryption, PKI encryption, region and
-preset tables, `Data` payload encoding.
+preset tables, `Data` payload encoding, carrier sense with a contention window,
+airtime accounting and duty cycle limiting.
 
-Not implemented yet: the MAC layer. There is no carrier sense, no contention
-window, no airtime accounting and no duty cycle limiting, so transmissions can
-talk over ongoing traffic and are **not compliant with EU duty cycle limits**.
-The frequency slot calculation is also incomplete for regions whose profile has
-non-zero channel spacing or padding.
+Not implemented yet: the frequency slot calculation is incomplete for regions
+whose profile has non-zero channel spacing or padding, so those regions land on
+the wrong frequency. There is no acknowledgement or retransmission, and no
+dwell time limiting.
 
 ## Installation
 
@@ -120,7 +120,38 @@ AES128 and 32 is AES256. Other lengths are zero padded up to the next of those.
 | `uint32_t sendTextPKI(const char *text, NodeNum dest, const uint8_t pubKey[32])`                                                  | packet id, or 0            |
 | `uint32_t sendDataPKI(meshtastic_PortNum, const uint8_t *data, size_t len, NodeNum dest, const uint8_t pubKey[32], bool wantAck)` | packet id, or 0            |
 
-Sending blocks until the transmission completes.
+Sending does not block. The frame is staged and `update()` transmits it once
+the backoff has elapsed and the channel is clear, so `update()` has to keep
+being called. One frame can be in flight at a time; a second send is refused
+with `TX_BUSY`.
+
+A send returning 0 means it was refused. `getLastSendResult()` says why:
+`TX_BUSY`, `DUTY_CYCLE`, `TOO_LONG` or `RADIO_ERROR`.
+
+### Transmit policy
+
+| Call                                                                  | Meaning                                                                       |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `Airtime getAirtime()`                                                | TX milliseconds this hour, TX duty cycle percent, channel utilisation percent |
+| `uint32_t getTimeOnAir(size_t payloadLen) const`                      | milliseconds the next send of that size would cost                            |
+| `void setDutyCycleLimit(float percent)`                               | refuse above this share of the last hour                                      |
+| `float getDutyCycleLimit() const`                                     | the current limit                                                             |
+| `void setCarrierSense(bool on, uint8_t cwMin = 3, uint8_t cwMax = 8)` | listen before talk, and contention window bounds                              |
+
+The duty cycle limit defaults to the configured region's, so EU_868 is capped
+at 10% and EU_866 at 2.5% without the application doing anything. Set it to
+`100.0f` to take over the decision yourself, in which case `getAirtime()` gives
+you the numbers to decide with.
+
+Carrier sense is on by default. Before each transmission the library waits a
+random backoff of up to `2^cw` slots, where the slot is derived from the
+current spreading factor and bandwidth and `cw` scales from `cwMin` to `cwMax`
+with channel utilisation, then checks the channel and re-draws the backoff if
+it is busy.
+
+What stays with the application: choosing the region, deciding whether the
+operator is licensed or otherwise exempt, and what to do about a refused send,
+whether that is dropping it, queueing it or trying later.
 
 ### Receiving
 

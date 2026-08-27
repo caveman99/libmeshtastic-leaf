@@ -135,12 +135,19 @@ enum class ReceiveResult {
 
 enum class SendResult {
   OK,
-  TX_BUSY,
-  CHANNEL_BUSY, ///< Channel is busy (CAD detected activity)
+  TX_BUSY,      ///< A frame is already staged or on the air
+  CHANNEL_BUSY, ///< Carrier sense found the channel occupied
+  DUTY_CYCLE,   ///< Would exceed the configured duty cycle limit
   INVALID_PARAM,
   TOO_LONG,
   NO_CHANNEL,
   RADIO_ERROR
+};
+
+struct Airtime {
+  uint32_t txMsecLastHour;
+  float txUtilizationPercent;      ///< our transmissions, share of the hour
+  float channelUtilizationPercent; ///< all traffic, share of the last minute
 };
 
 struct CryptoKey {
