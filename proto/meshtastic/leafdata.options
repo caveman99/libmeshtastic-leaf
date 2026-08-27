@@ -1,3 +1,0 @@
-*Data.payload max_size:233
-*Data.bitfield int_size:8
-*Data.xeddsa_signature max_size:64

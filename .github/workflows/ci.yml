@@ -3,7 +3,7 @@ name: CI
 # Runs on every pull request, and again on main after the merge commit lands.
 #
 # Security notes, since every job here executes code from the repository
-# (regen-protos.sh, version.py, and PlatformIO, which runs extra_scripts from
+# (regen-protos.py, version.py, and PlatformIO, which runs extra_scripts from
 # platformio.ini):
 #
 #   - the trigger is pull_request, never pull_request_target, so a pull request
@@ -74,14 +74,12 @@ jobs:
           python-version: "3.11"
       - name: Install nanopb generator
         run: pip install "nanopb==${NANOPB_VERSION}" grpcio-tools
-      # No NANOPB_PLUGIN here on purpose: protoc needs an absolute path, and
-      # regen-protos.sh resolves one with command -v.
       - name: Regenerate
-        run: bin/regen-protos.sh
+        run: python bin/regen-protos.py
       - name: Committed output must match a fresh generation
         run: |
           if ! git diff --exit-code -- src/generated; then
-            echo "::error::src/generated is stale. Run bin/regen-protos.sh and commit the result."
+            echo "::error::src/generated is stale. Run bin/regen-protos.py and commit the result."
             exit 1
           fi
 

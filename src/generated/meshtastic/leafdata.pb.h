@@ -13,25 +13,17 @@
 /* Struct definitions */
 typedef PB_BYTES_ARRAY_T(233) meshtastic_Data_payload_t;
 typedef PB_BYTES_ARRAY_T(64) meshtastic_Data_xeddsa_signature_t;
-/* Trimmed copy of the Data message from upstream meshtastic/protobufs
- mesh.proto. It is byte-for-byte wire compatible: same field numbers, same
- types, same nanopb size options.
-
- Generating from upstream mesh.proto instead would pull in config.proto,
- device_ui.proto, module_config.proto, telemetry.proto and xmodem.proto,
- none of which a leaf node touches. Data itself only depends on PortNum.
-
- When upstream adds a field to Data, add it here too. bin/regen-protos.sh
- diffs the two and fails if they drift. */
+/* (Formerly called SubPacket)
+ The payload portion fo a packet, this is the actual bytes that are sent
+ inside a radio packet (because from/to are broken out by the comms library) */
 typedef struct _meshtastic_Data {
     /* Formerly named typ and of type Type */
     meshtastic_PortNum portnum;
     /* TODO: REPLACE */
     meshtastic_Data_payload_t payload;
     /* Not normally used, but for testing a sender can request that recipient
- responds in kind (i.e. if it received a position, it should unicast back
- it's position). Note: that if you set this on a broadcast you will receive
- many replies. */
+ responds in kind (i.e. if it received a position, it should unicast back it's position).
+ Note: that if you set this on a broadcast you will receive many replies. */
     bool want_response;
     /* The address of the destination node.
  This field is is filled in by the mesh radio device software, application
@@ -40,21 +32,18 @@ typedef struct _meshtastic_Data {
  Other message types might need to if they are doing multihop routing. */
     uint32_t dest;
     /* The address of the original sender for this message.
- This field should _only_ be populated for reliable multihop packets (to
- keep packets small). */
+ This field should _only_ be populated for reliable multihop packets (to keep
+ packets small). */
     uint32_t source;
     /* Only used in routing or response messages.
- Indicates the original message ID that this message is reporting failure
- on. (formerly called original_id) */
+ Indicates the original message ID that this message is reporting failure on. (formerly called original_id) */
     uint32_t request_id;
-    /* If set, this message is intened to be a reply to a previously sent message
- with the defined id. */
+    /* If set, this message is intened to be a reply to a previously sent message with the defined id. */
     uint32_t reply_id;
-    /* Defaults to false. If true, then what is in the payload should be treated
- as an emoji like giving a message a heart or poop emoji. */
+    /* Defaults to false. If true, then what is in the payload should be treated as an emoji like giving
+ a message a heart or poop emoji. */
     uint32_t emoji;
-    /* Bitfield for extra flags. First use is to indicate that user approves the
- packet being uploaded to MQTT. */
+    /* Bitfield for extra flags. First use is to indicate that user approves the packet being uploaded to MQTT. */
     bool has_bitfield;
     uint8_t bitfield;
     /* XEdDSA signature for the payload */

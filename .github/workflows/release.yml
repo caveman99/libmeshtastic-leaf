@@ -73,10 +73,10 @@ jobs:
           git submodule update --remote protobufs
           echo "protobufs now at $(git -C protobufs rev-parse --short HEAD)"
 
-      # Fails if upstream Data has gained a field that the trimmed
-      # proto/meshtastic/leafdata.proto does not have yet.
+      # Derives the Data message from the submodule, so advancing it above
+      # is what brings a new upstream field into the generated output.
       - name: Regenerate protobufs
-        run: bin/regen-protos.sh
+        run: python bin/regen-protos.py
 
       - name: Set version
         env:
