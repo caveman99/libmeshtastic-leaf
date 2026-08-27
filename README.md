@@ -13,11 +13,9 @@ two sits, and what this library deliberately does not do.
 Working: packet framing, channel (PSK) encryption, PKI encryption, region and
 preset tables, `Data` payload encoding, carrier sense with a contention window,
 airtime accounting, duty cycle limiting, duplicate suppression, and
-retransmission with implicit acknowledgement.
+retransmission with both implicit and explicit acknowledgement.
 
-Not implemented yet: explicit acknowledgements, which need the `Routing`
-message, so a direct message is only confirmed when the packet is overheard
-being relayed. No dwell time limiting.
+Not implemented yet: dwell time limiting.
 
 ## Installation
 
@@ -175,6 +173,17 @@ radio is busy.
 
 A retransmission is dropped rather than deferred if it would breach the duty
 cycle limit.
+
+There are two kinds of acknowledgement. Hearing the packet relayed by someone
+else is the implicit one, checked on the header alone so it works for a direct
+message this node cannot decrypt. A direct message also draws an explicit
+acknowledgement, a `ROUTING_APP` packet naming the original packet id, which is
+what confirms the recipient itself received it.
+
+This node answers direct messages that ask for an acknowledgement, since a
+silent node makes the sender burn every retry. Acknowledgements have their own
+transmit slot so an application frame already staged cannot delay one. Turn the
+behaviour off with `setSendAcks(false)`.
 
 ### Receiving
 

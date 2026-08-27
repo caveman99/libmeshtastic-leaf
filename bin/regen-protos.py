@@ -34,9 +34,10 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 PROTOBUFS = ROOT / "protobufs"
 OUT = ROOT / "src" / "generated"
 
-# The message to lift out of mesh.proto, and the files generated as-is.
+# The messages to lift out of mesh.proto, and the files generated as-is.
+# Anything these reference from the same file is pulled in with them.
 TRIM_FROM = "meshtastic/mesh.proto"
-TRIM_MESSAGE = "Data"
+TRIM_MESSAGES = ["Data", "Routing"]
 TRIM_AS = "meshtastic/leafdata.proto"
 WHOLE = ["meshtastic/portnums.proto"]
 
@@ -56,52 +57,90 @@ def descriptor_set(proto, out, source_info=False):
 
 
 def trim(full, out):
-    """Write a descriptor set holding just TRIM_MESSAGE and the imports it uses."""
+    """Write a descriptor set holding just TRIM_MESSAGES and what they reference."""
     fds = descriptor_pb2.FileDescriptorSet()
     fds.ParseFromString(full.read_bytes())
     by_name = {f.name: f for f in fds.file}
 
     origin = by_name[TRIM_FROM]
-    index, message = next(
-        (i, m) for i, m in enumerate(origin.message_type) if m.name == TRIM_MESSAGE
-    )
+    at = {m.name: i for i, m in enumerate(origin.message_type)}
+
+    # Follow references inside the file, so a message that names another
+    # message brings it along rather than dangling.
+    def refs_of(message):
+        out = {f.type_name.lstrip(".") for f in message.field if f.type_name}
+        for nested in message.nested_type:
+            out |= refs_of(nested)
+        return out
+
+    # Every type a message declares itself, nested ones included, so a
+    # reference to its own nested enum is not mistaken for a missing import.
+    def declares(message, prefix):
+        full = f"{prefix}.{message.name}"
+        out = {full}
+        for enum in message.enum_type:
+            out.add(f"{full}.{enum.name}")
+        for nested in message.nested_type:
+            out |= declares(nested, full)
+        return out
+
+    wanted, queue, refs = [], list(TRIM_MESSAGES), set()
+    while queue:
+        name = queue.pop(0)
+        if name in wanted:
+            continue
+        if name not in at:
+            raise SystemExit(f"{TRIM_FROM} has no message {name}")
+        wanted.append(name)
+        for ref in refs_of(origin.message_type[at[name]]):
+            local = ref[len(origin.package) + 1 :] if ref.startswith(origin.package + ".") else None
+            if local is not None and local.split(".")[0] in at:
+                queue.append(local.split(".")[0])
+            refs.add(ref)
+
+    provided = set()
+    for name in wanted:
+        provided |= declares(origin.message_type[at[name]], origin.package)
+    external = refs - provided
 
     trimmed = descriptor_pb2.FileDescriptorProto()
     trimmed.name = TRIM_AS
     trimmed.package = origin.package
     trimmed.syntax = origin.syntax
     trimmed.options.CopyFrom(origin.options)
-    trimmed.message_type.add().CopyFrom(message)
+    for name in wanted:
+        trimmed.message_type.add().CopyFrom(origin.message_type[at[name]])
 
-    # Carry only the imports the message actually refers to, so a new field
-    # pointing at a new message brings its import along by itself.
-    refs = {f.type_name.lstrip(".") for f in message.field if f.type_name}
+    # Carry only the imports the kept messages actually reach.
     kept = []
     for dep in origin.dependency:
         depfile = by_name[dep]
         provides = {f"{depfile.package}.{m.name}" for m in depfile.message_type}
         provides |= {f"{depfile.package}.{e.name}" for e in depfile.enum_type}
-        if refs & provides:
+        if external & provides:
             kept.append(dep)
     trimmed.dependency.extend(kept)
 
-    missing = refs - {
+    missing = external - {
         f"{by_name[d].package}.{n.name}"
         for d in kept
         for n in list(by_name[d].message_type) + list(by_name[d].enum_type)
     }
     if missing:
-        raise SystemExit(f"{TRIM_MESSAGE} refers to types from no known import: {sorted(missing)}")
+        raise SystemExit(f"referenced types come from no known import: {sorted(missing)}")
 
-    # Source info paths encode the message's index, so remap it to 0. Without
-    # this the generated header loses the upstream comments.
+    # Source info paths encode the message index, so remap each kept message to
+    # its new position. Without this the generated header loses the comments.
     for loc in origin.source_code_info.location:
         path = list(loc.path)
-        if len(path) >= 2 and path[0] == 4 and path[1] == index:
+        if len(path) >= 2 and path[0] == 4 and path[1] in at.values():
+            name = next(n for n, i in at.items() if i == path[1])
+            if name not in wanted:
+                continue
             new = trimmed.source_code_info.location.add()
             new.CopyFrom(loc)
             del new.path[:]
-            new.path.extend([4, 0, *path[2:]])
+            new.path.extend([4, wanted.index(name), *path[2:]])
 
     result = descriptor_pb2.FileDescriptorSet()
     for dep in kept:
@@ -109,18 +148,20 @@ def trim(full, out):
     result.file.add().CopyFrom(trimmed)
     out.write_bytes(result.SerializeToString())
 
-    print(f"{TRIM_MESSAGE} refers to {sorted(refs) or 'scalars only'}, keeping imports {kept}")
+    print(f"keeping {wanted}, referencing {sorted(external) or 'scalars only'}, imports {kept}")
+    return wanted
 
 
-def options_for(message, source, out):
-    """Lift the nanopb options for one message out of an upstream .options file."""
+def options_for(messages, source, out):
+    """Lift the nanopb options for these messages out of an upstream .options file."""
     if not source.exists():
         out.write_text("", encoding="utf-8")
         return
-    wanted = re.compile(rf"^\*{re.escape(message)}\.")
+    names = "|".join(re.escape(m) for m in messages)
+    wanted = re.compile(r"^\*(" + names + r")\.")
     lines = [ln for ln in source.read_text(encoding="utf-8").splitlines() if wanted.match(ln)]
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"options for {message}: {lines or 'none'}")
+    print(f"options: {lines or 'none'}")
 
 
 def nanopb(generator, descriptors, options=None):
@@ -150,10 +191,10 @@ def main():
         descriptor_set(TRIM_FROM, full, source_info=True)
 
         leaf = tmp / "leaf.pb"
-        trim(full, leaf)
+        kept = trim(full, leaf)
 
         options = tmp / "leaf.options"
-        options_for(TRIM_MESSAGE, PROTOBUFS / "meshtastic" / "mesh.options", options)
+        options_for(kept, PROTOBUFS / "meshtastic" / "mesh.options", options)
 
         nanopb(generator, leaf, options)
 

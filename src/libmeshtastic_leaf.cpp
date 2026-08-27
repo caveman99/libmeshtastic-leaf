@@ -46,6 +46,7 @@ bool libmeshtastic_leaf::begin(const MeshConfig &config, PhysicalLayer *phy) {
   airtime_.reset(millis());
   history_.clear();
   stopRetransmission();
+  ack_.queued = false;
   txState_ = TxState::IDLE;
 
   const RegionInfo *region = MeshRegion::getRegion(config_.radio.region);
@@ -167,7 +168,7 @@ uint32_t libmeshtastic_leaf::sendData(meshtastic_PortNum port,
   header.setHopStart(config_.hopLimit);
   header.setWantAck(wantAck);
 
-  return sendPacket(header, data, len, false, nullptr);
+  return sendPacket(header, port, data, len, 0, false, nullptr);
 }
 
 uint32_t libmeshtastic_leaf::sendTextPKI(const char *text, NodeNum destNode,
@@ -200,12 +201,13 @@ uint32_t libmeshtastic_leaf::sendDataPKI(meshtastic_PortNum port,
   header.setHopStart(config_.hopLimit);
   header.setWantAck(wantAck);
 
-  return sendPacket(header, data, len, true, remotePubKey);
+  return sendPacket(header, port, data, len, 0, true, remotePubKey);
 }
 
 uint32_t libmeshtastic_leaf::sendPacket(PacketHeader &header,
+                                        meshtastic_PortNum portNum,
                                         const uint8_t *payload, size_t len,
-                                        bool usePKI,
+                                        PacketId requestId, bool usePKI,
                                         const uint8_t *remotePubKey) {
   if (!initialized_ || phy_ == nullptr) {
     return 0;
@@ -218,8 +220,8 @@ uint32_t libmeshtastic_leaf::sendPacket(PacketHeader &header,
 
   uint8_t dataMsg[MAX_ENCRYPTED_PAYLOAD];
   size_t dataMsgLen;
-  if (!MeshPacketCodec::encodeDataMessage(meshtastic_PortNum_TEXT_MESSAGE_APP,
-                                          payload, len, dataMsg, dataMsgLen)) {
+  if (!MeshPayloadCodec::encodeDataMessage(portNum, payload, len, dataMsg,
+                                           dataMsgLen, requestId)) {
     return 0;
   }
 
@@ -439,6 +441,59 @@ bool libmeshtastic_leaf::filterReceived(uint32_t nowMsec) {
   return false;
 }
 
+// An explicit ack clears the pending send; a direct message that asked for
+// one gets answered.
+void libmeshtastic_leaf::handleDecoded(const MeshPacket &packet) {
+  if (packet.portNum == meshtastic_PortNum_ROUTING_APP) {
+    if (pending_.attemptsLeft > 0 && packet.requestId == pending_.id &&
+        MeshPayloadCodec::isRoutingAck(packet.payload, packet.payloadLen)) {
+      stopRetransmission();
+    }
+    return;
+  }
+
+  if (sendAcks_ && packet.header.wantAck() &&
+      packet.header.to == config_.nodeNum) {
+    queueAck(packet.header.from, packet.header.id);
+  }
+}
+
+void libmeshtastic_leaf::queueAck(NodeNum to, PacketId requestId) {
+  ack_.queued = true;
+  ack_.to = to;
+  ack_.requestId = requestId;
+}
+
+// Sends the queued ack if the transmit slot is free. Returns true when it
+// took the slot, so an application frame waits its turn.
+bool libmeshtastic_leaf::serviceAck() {
+  if (!ack_.queued || txState_ != TxState::IDLE) {
+    return false;
+  }
+
+  uint8_t routing[MAX_ENCRYPTED_PAYLOAD];
+  size_t routingLen;
+  if (!MeshPayloadCodec::encodeRoutingAck(routing, routingLen)) {
+    ack_.queued = false;
+    return false;
+  }
+
+  PacketHeader header;
+  memset(&header, 0, sizeof(header));
+  header.to = ack_.to;
+  header.from = config_.nodeNum;
+  header.id = MeshPacketCodec::generatePacketId(config_.nodeNum);
+  header.channel = channel_.getHash();
+  header.setHopLimit(config_.hopLimit);
+  header.setHopStart(config_.hopLimit);
+
+  const PacketId requestId = ack_.requestId;
+  ack_.queued = false;
+
+  return sendPacket(header, meshtastic_PortNum_ROUTING_APP, nullptr, 0,
+                    requestId, false, nullptr) != 0;
+}
+
 Airtime libmeshtastic_leaf::getAirtime() {
   airtime_.advance(millis());
   Airtime out;
@@ -468,7 +523,9 @@ void libmeshtastic_leaf::update() {
   }
 
   serviceTx();
-  serviceRetransmission();
+  if (!serviceAck()) {
+    serviceRetransmission();
+  }
 
   if (txState_ != TxState::IDLE) {
     return;
@@ -546,12 +603,16 @@ ReceiveResult libmeshtastic_leaf::receive(MeshPacket &packet) {
       meshtastic_PortNum portNum;
       uint8_t innerPayload[MAX_ENCRYPTED_PAYLOAD];
       size_t innerLen;
-      if (MeshPacketCodec::decodeDataMessage(packet.payload, packet.payloadLen,
-                                             portNum, innerPayload, innerLen)) {
+      PacketId requestId = 0;
+      if (MeshPayloadCodec::decodeDataMessage(packet.payload, packet.payloadLen,
+                                              portNum, innerPayload, innerLen,
+                                              &requestId)) {
         packet.portNum = portNum;
+        packet.requestId = requestId;
         memcpy(packet.payload, innerPayload, innerLen);
         packet.payloadLen = innerLen;
       }
+      handleDecoded(packet);
     }
 
     rxPending_ = false;
@@ -573,12 +634,16 @@ ReceiveResult libmeshtastic_leaf::receive(MeshPacket &packet) {
       meshtastic_PortNum portNum;
       uint8_t innerPayload[MAX_ENCRYPTED_PAYLOAD];
       size_t innerLen;
-      if (MeshPacketCodec::decodeDataMessage(packet.payload, packet.payloadLen,
-                                             portNum, innerPayload, innerLen)) {
+      PacketId requestId = 0;
+      if (MeshPayloadCodec::decodeDataMessage(packet.payload, packet.payloadLen,
+                                              portNum, innerPayload, innerLen,
+                                              &requestId)) {
         packet.portNum = portNum;
+        packet.requestId = requestId;
         memcpy(packet.payload, innerPayload, innerLen);
         packet.payloadLen = innerLen;
       }
+      handleDecoded(packet);
     }
 
     rxPending_ = false;

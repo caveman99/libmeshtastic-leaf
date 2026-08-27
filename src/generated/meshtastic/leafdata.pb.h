@@ -10,6 +10,52 @@
 #error Regenerate this file with the current version of nanopb generator.
 #endif
 
+/* Enum definitions */
+/* A failure in delivering a message (usually used for routing control messages, but might be provided in addition to ack.fail_id to provide
+ details on the type of failure). */
+typedef enum _meshtastic_Routing_Error {
+    /* This message is not a failure */
+    meshtastic_Routing_Error_NONE = 0,
+    /* Our node doesn't have a route to the requested destination anymore. */
+    meshtastic_Routing_Error_NO_ROUTE = 1,
+    /* We received a nak while trying to forward on your behalf */
+    meshtastic_Routing_Error_GOT_NAK = 2,
+    /* TODO: REPLACE */
+    meshtastic_Routing_Error_TIMEOUT = 3,
+    /* No suitable interface could be found for delivering this packet */
+    meshtastic_Routing_Error_NO_INTERFACE = 4,
+    /* We reached the max retransmission count (typically for naive flood routing) */
+    meshtastic_Routing_Error_MAX_RETRANSMIT = 5,
+    /* No suitable channel was found for sending this packet (i.e. was requested channel index disabled?) */
+    meshtastic_Routing_Error_NO_CHANNEL = 6,
+    /* The packet was too big for sending (exceeds interface MTU after encoding) */
+    meshtastic_Routing_Error_TOO_LARGE = 7,
+    /* The request had want_response set, the request reached the destination node, but no service on that node wants to send a response
+ (possibly due to bad channel permissions) */
+    meshtastic_Routing_Error_NO_RESPONSE = 8,
+    /* Cannot send currently because duty cycle regulations will be violated. */
+    meshtastic_Routing_Error_DUTY_CYCLE_LIMIT = 9,
+    /* The application layer service on the remote node received your request, but considered your request somehow invalid */
+    meshtastic_Routing_Error_BAD_REQUEST = 32,
+    /* The application layer service on the remote node received your request, but considered your request not authorized
+ (i.e you did not send the request on the required bound channel) */
+    meshtastic_Routing_Error_NOT_AUTHORIZED = 33,
+    /* The client specified a PKI transport, but the node was unable to send the packet using PKI (and did not send the message at all) */
+    meshtastic_Routing_Error_PKI_FAILED = 34,
+    /* The receiving node does not have a Public Key to decode with */
+    meshtastic_Routing_Error_PKI_UNKNOWN_PUBKEY = 35,
+    /* Admin packet otherwise checks out, but uses a bogus or expired session key */
+    meshtastic_Routing_Error_ADMIN_BAD_SESSION_KEY = 36,
+    /* Admin packet sent using PKC, but not from a public key on the admin key list */
+    meshtastic_Routing_Error_ADMIN_PUBLIC_KEY_UNAUTHORIZED = 37,
+    /* Airtime fairness rate limit exceeded for a packet
+ This typically enforced per portnum and is used to prevent a single node from monopolizing airtime */
+    meshtastic_Routing_Error_RATE_LIMIT_EXCEEDED = 38,
+    /* PKI encryption failed, due to no public key for the remote node
+ This is different from PKI_UNKNOWN_PUBKEY which indicates a failure upon receiving a packet */
+    meshtastic_Routing_Error_PKI_SEND_FAIL_PUBLIC_KEY = 39
+} meshtastic_Routing_Error;
+
 /* Struct definitions */
 typedef PB_BYTES_ARRAY_T(233) meshtastic_Data_payload_t;
 typedef PB_BYTES_ARRAY_T(64) meshtastic_Data_xeddsa_signature_t;
@@ -50,14 +96,59 @@ typedef struct _meshtastic_Data {
     meshtastic_Data_xeddsa_signature_t xeddsa_signature;
 } meshtastic_Data;
 
+/* A message used in a traceroute */
+typedef struct _meshtastic_RouteDiscovery {
+    /* The list of nodenums this packet has visited so far to the destination. */
+    pb_size_t route_count;
+    uint32_t route[8];
+    /* The list of SNRs (in dB, scaled by 4) in the route towards the destination. */
+    pb_size_t snr_towards_count;
+    int8_t snr_towards[8];
+    /* The list of nodenums the packet has visited on the way back from the destination. */
+    pb_size_t route_back_count;
+    uint32_t route_back[8];
+    /* The list of SNRs (in dB, scaled by 4) in the route back from the destination. */
+    pb_size_t snr_back_count;
+    int8_t snr_back[8];
+} meshtastic_RouteDiscovery;
+
+/* A Routing control Data packet handled by the routing module */
+typedef struct _meshtastic_Routing {
+    pb_size_t which_variant;
+    union {
+        /* A route request going from the requester */
+        meshtastic_RouteDiscovery route_request;
+        /* A route reply */
+        meshtastic_RouteDiscovery route_reply;
+        /* A failure in delivering a message (usually used for routing control messages, but might be provided
+     in addition to ack.fail_id to provide details on the type of failure). */
+        meshtastic_Routing_Error error_reason;
+    };
+} meshtastic_Routing;
+
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+/* Helper constants for enums */
+#define _meshtastic_Routing_Error_MIN meshtastic_Routing_Error_NONE
+#define _meshtastic_Routing_Error_MAX meshtastic_Routing_Error_PKI_SEND_FAIL_PUBLIC_KEY
+#define _meshtastic_Routing_Error_ARRAYSIZE ((meshtastic_Routing_Error)(meshtastic_Routing_Error_PKI_SEND_FAIL_PUBLIC_KEY+1))
+
+#define meshtastic_Data_portnum_ENUMTYPE meshtastic_PortNum
+
+#define meshtastic_Routing_variant_error_reason_ENUMTYPE meshtastic_Routing_Error
+
+
+
 /* Initializer values for message structs */
 #define meshtastic_Data_init_default             {_meshtastic_PortNum_MIN, {0, {0}}, 0, 0, 0, 0, 0, 0, false, 0, {0, {0}}}
+#define meshtastic_Routing_init_default          {0, {meshtastic_RouteDiscovery_init_default}}
+#define meshtastic_RouteDiscovery_init_default   {0, {0, 0, 0, 0, 0, 0, 0, 0}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, 0, {0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_Data_init_zero                {_meshtastic_PortNum_MIN, {0, {0}}, 0, 0, 0, 0, 0, 0, false, 0, {0, {0}}}
+#define meshtastic_Routing_init_zero             {0, {meshtastic_RouteDiscovery_init_zero}}
+#define meshtastic_RouteDiscovery_init_zero      {0, {0, 0, 0, 0, 0, 0, 0, 0}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, 0, {0, 0, 0, 0, 0, 0, 0, 0}}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define meshtastic_Data_portnum_tag              1
@@ -70,6 +161,13 @@ extern "C" {
 #define meshtastic_Data_emoji_tag                8
 #define meshtastic_Data_bitfield_tag             9
 #define meshtastic_Data_xeddsa_signature_tag     10
+#define meshtastic_RouteDiscovery_route_tag      1
+#define meshtastic_RouteDiscovery_snr_towards_tag 2
+#define meshtastic_RouteDiscovery_route_back_tag 3
+#define meshtastic_RouteDiscovery_snr_back_tag   4
+#define meshtastic_Routing_route_request_tag     1
+#define meshtastic_Routing_route_reply_tag       2
+#define meshtastic_Routing_error_reason_tag      3
 
 /* Struct field encoding specification for nanopb */
 #define meshtastic_Data_FIELDLIST(X, a) \
@@ -86,14 +184,37 @@ X(a, STATIC,   SINGULAR, BYTES,    xeddsa_signature,  10)
 #define meshtastic_Data_CALLBACK NULL
 #define meshtastic_Data_DEFAULT NULL
 
+#define meshtastic_Routing_FIELDLIST(X, a) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (variant,route_request,route_request),   1) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (variant,route_reply,route_reply),   2) \
+X(a, STATIC,   ONEOF,    UENUM,    (variant,error_reason,error_reason),   3)
+#define meshtastic_Routing_CALLBACK NULL
+#define meshtastic_Routing_DEFAULT NULL
+#define meshtastic_Routing_variant_route_request_MSGTYPE meshtastic_RouteDiscovery
+#define meshtastic_Routing_variant_route_reply_MSGTYPE meshtastic_RouteDiscovery
+
+#define meshtastic_RouteDiscovery_FIELDLIST(X, a) \
+X(a, STATIC,   REPEATED, FIXED32,  route,             1) \
+X(a, STATIC,   REPEATED, INT32,    snr_towards,       2) \
+X(a, STATIC,   REPEATED, FIXED32,  route_back,        3) \
+X(a, STATIC,   REPEATED, INT32,    snr_back,          4)
+#define meshtastic_RouteDiscovery_CALLBACK NULL
+#define meshtastic_RouteDiscovery_DEFAULT NULL
+
 extern const pb_msgdesc_t meshtastic_Data_msg;
+extern const pb_msgdesc_t meshtastic_Routing_msg;
+extern const pb_msgdesc_t meshtastic_RouteDiscovery_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define meshtastic_Data_fields &meshtastic_Data_msg
+#define meshtastic_Routing_fields &meshtastic_Routing_msg
+#define meshtastic_RouteDiscovery_fields &meshtastic_RouteDiscovery_msg
 
 /* Maximum encoded size of messages (where known) */
 #define MESHTASTIC_MESHTASTIC_LEAFDATA_PB_H_MAX_SIZE meshtastic_Data_size
 #define meshtastic_Data_size                     335
+#define meshtastic_RouteDiscovery_size           256
+#define meshtastic_Routing_size                  259
 
 #ifdef __cplusplus
 } /* extern "C" */

@@ -1,6 +1,5 @@
 
 #include "MeshPacket.h"
-#include "generated/meshtastic/leafdata.pb.h"
 #include <pb_decode.h>
 #include <pb_encode.h>
 #include <string.h>
@@ -205,50 +204,6 @@ PacketId MeshPacketCodec::generatePacketId(NodeNum nodeNum) {
   uint32_t rnd = random();
 
   return (packetIdCounter_ ^ (time << 16) ^ rnd ^ nodeNum);
-}
-
-bool MeshPacketCodec::encodeDataMessage(meshtastic_PortNum portNum,
-                                        const uint8_t *payload,
-                                        size_t payloadLen, uint8_t *outBuffer,
-                                        size_t &outLen) {
-  meshtastic_Data data = meshtastic_Data_init_zero;
-  data.portnum = portNum;
-  data.payload.size = payloadLen;
-
-  if (payloadLen > sizeof(data.payload.bytes)) {
-    return false;
-  }
-  memcpy(data.payload.bytes, payload, payloadLen);
-
-  pb_ostream_t stream =
-      pb_ostream_from_buffer(outBuffer, MAX_ENCRYPTED_PAYLOAD);
-  if (!pb_encode(&stream, meshtastic_Data_fields, &data)) {
-    return false;
-  }
-
-  outLen = stream.bytes_written;
-  return true;
-}
-
-bool MeshPacketCodec::decodeDataMessage(const uint8_t *buffer, size_t bufLen,
-                                        meshtastic_PortNum &outPortNum,
-                                        uint8_t *outPayload,
-                                        size_t &outPayloadLen) {
-  meshtastic_Data data = meshtastic_Data_init_zero;
-
-  pb_istream_t stream = pb_istream_from_buffer(buffer, bufLen);
-  if (!pb_decode(&stream, meshtastic_Data_fields, &data)) {
-    return false;
-  }
-
-  outPortNum = data.portnum;
-  outPayloadLen = data.payload.size;
-
-  if (outPayloadLen > 0 && outPayload != nullptr) {
-    memcpy(outPayload, data.payload.bytes, outPayloadLen);
-  }
-
-  return true;
 }
 
 } // namespace libmeshtastic_leaf

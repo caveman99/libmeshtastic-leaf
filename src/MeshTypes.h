@@ -219,12 +219,13 @@ struct MeshPacket {
   int16_t rxRssi;            ///< Received signal strength (dBm)
   float rxSnr;               ///< Signal-to-noise ratio (dB)
   uint32_t rxTime;           ///< Reception timestamp (millis)
+  PacketId requestId;        ///< the packet an ack or reply refers to
   bool isPKI;                ///< True if PKI-encrypted
   ChannelIndex channelIndex; ///< Channel index (for channel-encrypted)
 
   MeshPacket()
       : portNum(meshtastic_PortNum_UNKNOWN_APP), payloadLen(0), rxRssi(0),
-        rxSnr(0), rxTime(0), isPKI(false), channelIndex(0) {
+        rxSnr(0), rxTime(0), requestId(0), isPKI(false), channelIndex(0) {
     memset(&header, 0, sizeof(header));
     memset(payload, 0, sizeof(payload));
   }

@@ -61,8 +61,7 @@ state machine, configuration persistence, admin messages.
 
 ### Still missing
 
-Explicit acknowledgements and dwell time limiting. See the status section in
-[README.md](README.md).
+Dwell time limiting. See the status section in [README.md](README.md).
 
 ## Duplicates and acknowledgement
 
@@ -83,12 +82,20 @@ pushes the retry out by that packet's airtime, because an acknowledgement
 cannot arrive while the radio is busy with something else.
 
 An explicit acknowledgement is a `ROUTING_APP` packet carrying `Routing` with
-an error reason, and `Data.request_id` set to the original packet id. That
-needs the `Routing` message, which shares a oneof with `RouteDiscovery` in
-mesh.proto, so generating it means teaching the descriptor trimmer to take a
-list of messages and follow references within a file. Answering one also means
-a received packet triggers a transmission, which the single transmit slot has
-no priority scheme for.
+an error reason, and `Data.request_id` set to the original packet id. It is
+what confirms the recipient itself received a direct message, where the
+implicit one only proves the packet reached the mesh.
+
+Answering one means a received packet triggers a transmission, so
+acknowledgements have a slot of their own and are serviced ahead of both an
+application frame and a retransmission. They are a few bytes and the sender is
+counting retries, so making them wait behind a queued message defeats them.
+
+`Routing` shares a oneof with `RouteDiscovery`, so the descriptor trimmer takes
+a list of messages and follows references within the file, pulling
+`RouteDiscovery` and the nested `Routing.Error` along with it. The generated
+types stay in `MeshPayload.cpp`, which is the only translation unit that
+includes the generated header.
 
 ## Frequency slots
 

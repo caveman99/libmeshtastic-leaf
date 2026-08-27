@@ -3,6 +3,7 @@
 
 #include "MeshChannel.h"
 #include "MeshCryptoPKI.h"
+#include "MeshPayload.h"
 #include "MeshTypes.h"
 
 namespace libmeshtastic_leaf {
@@ -37,14 +38,6 @@ public:
                                  ChannelHash expectedHash);
 
   static PacketId generatePacketId(NodeNum nodeNum);
-
-  static bool encodeDataMessage(meshtastic_PortNum portNum,
-                                const uint8_t *payload, size_t payloadLen,
-                                uint8_t *outBuffer, size_t &outLen);
-
-  static bool decodeDataMessage(const uint8_t *buffer, size_t bufLen,
-                                meshtastic_PortNum &outPortNum,
-                                uint8_t *outPayload, size_t &outPayloadLen);
 
 private:
   /// Counter for packet ID generation

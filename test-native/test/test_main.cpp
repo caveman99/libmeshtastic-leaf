@@ -6,6 +6,7 @@
 
 #include "MeshAirtime.h"
 #include "MeshPacketHistory.h"
+#include "MeshPayload.h"
 #include "MeshRegion.h"
 #include "MeshTypes.h"
 
@@ -559,6 +560,74 @@ TEST(history_clear_forgets_everything) {
   ASSERT_FALSE(h.wasSeen(1u, 1u, 1000, false));
 }
 
+TEST(ack_payload_round_trips) {
+  uint8_t routing[256];
+  size_t routingLen = 0;
+  ASSERT_TRUE(MeshPayloadCodec::encodeRoutingAck(routing, routingLen));
+  ASSERT_TRUE(routingLen > 0);
+  ASSERT_TRUE(MeshPayloadCodec::isRoutingAck(routing, routingLen));
+}
+
+TEST(ack_is_not_confused_with_a_text_payload) {
+  // A text message body is not a Routing ack.
+  const uint8_t text[] = {'h', 'e', 'l', 'l', 'o'};
+  ASSERT_FALSE(MeshPayloadCodec::isRoutingAck(text, sizeof(text)));
+}
+
+TEST(data_carries_the_request_id) {
+  uint8_t routing[256];
+  size_t routingLen = 0;
+  ASSERT_TRUE(MeshPayloadCodec::encodeRoutingAck(routing, routingLen));
+
+  uint8_t data[256];
+  size_t dataLen = 0;
+  ASSERT_TRUE(MeshPayloadCodec::encodeDataMessage(
+      meshtastic_PortNum_ROUTING_APP, routing, routingLen, data, dataLen,
+      0x1234ABCDu));
+
+  meshtastic_PortNum portNum = meshtastic_PortNum_UNKNOWN_APP;
+  uint8_t payload[256];
+  size_t payloadLen = 0;
+  PacketId requestId = 0;
+  ASSERT_TRUE(MeshPayloadCodec::decodeDataMessage(
+      data, dataLen, portNum, payload, payloadLen, &requestId));
+  ASSERT_EQ(portNum, meshtastic_PortNum_ROUTING_APP);
+  ASSERT_EQ(requestId, 0x1234ABCDu);
+  ASSERT_TRUE(MeshPayloadCodec::isRoutingAck(payload, payloadLen));
+}
+
+TEST(data_portnum_is_not_hardcoded) {
+  // sendData used to drop the caller's portnum and send everything as text.
+  const uint8_t body[] = {1, 2, 3};
+  uint8_t data[256];
+  size_t dataLen = 0;
+  ASSERT_TRUE(MeshPayloadCodec::encodeDataMessage(
+      meshtastic_PortNum_POSITION_APP, body, sizeof(body), data, dataLen));
+
+  meshtastic_PortNum portNum = meshtastic_PortNum_UNKNOWN_APP;
+  uint8_t payload[256];
+  size_t payloadLen = 0;
+  ASSERT_TRUE(MeshPayloadCodec::decodeDataMessage(data, dataLen, portNum,
+                                                  payload, payloadLen));
+  ASSERT_EQ(portNum, meshtastic_PortNum_POSITION_APP);
+}
+
+TEST(request_id_defaults_to_zero) {
+  const uint8_t body[] = {9};
+  uint8_t data[256];
+  size_t dataLen = 0;
+  ASSERT_TRUE(MeshPayloadCodec::encodeDataMessage(
+      meshtastic_PortNum_TEXT_MESSAGE_APP, body, sizeof(body), data, dataLen));
+
+  meshtastic_PortNum portNum = meshtastic_PortNum_UNKNOWN_APP;
+  uint8_t payload[256];
+  size_t payloadLen = 0;
+  PacketId requestId = 0xFFFFFFFFu;
+  ASSERT_TRUE(MeshPayloadCodec::decodeDataMessage(
+      data, dataLen, portNum, payload, payloadLen, &requestId));
+  ASSERT_EQ(requestId, 0u);
+}
+
 int main() {
   printf("libmeshtastic_leaf Unit Tests\n");
   printf("=========================\n\n");
@@ -566,6 +635,14 @@ int main() {
   printf("MeshTypes Tests:\n");
   printf("MeshAirtime Tests:\n");
   printf("MeshPacketHistory Tests:\n");
+  printf("Ack Tests:\n");
+  RUN_TEST(ack_payload_round_trips);
+  RUN_TEST(ack_is_not_confused_with_a_text_payload);
+  RUN_TEST(data_carries_the_request_id);
+  RUN_TEST(data_portnum_is_not_hardcoded);
+  RUN_TEST(request_id_defaults_to_zero);
+
+  printf("\nMeshPacketHistory Tests:\n");
   RUN_TEST(history_first_sighting_is_not_a_duplicate);
   RUN_TEST(history_distinguishes_sender_and_id);
   RUN_TEST(history_peek_does_not_record);

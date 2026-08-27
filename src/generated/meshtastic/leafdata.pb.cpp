@@ -9,4 +9,12 @@
 PB_BIND(meshtastic_Data, meshtastic_Data, 2)
 
 
+PB_BIND(meshtastic_Routing, meshtastic_Routing, AUTO)
+
+
+PB_BIND(meshtastic_RouteDiscovery, meshtastic_RouteDiscovery, AUTO)
+
+
+
+
 

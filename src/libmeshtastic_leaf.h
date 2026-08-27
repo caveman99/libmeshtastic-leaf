@@ -70,6 +70,10 @@ public:
   // A send awaiting an ack is still outstanding.
   bool hasPendingAck() const { return pending_.attemptsLeft > 0; }
 
+  // Answer a direct message that asked for an ack. On by default; a node that
+  // stays silent makes the sender burn its retransmissions.
+  void setSendAcks(bool enabled) { sendAcks_ = enabled; }
+
   NodeNum getNodeNum() const { return config_.nodeNum; }
   PhysicalLayer *getRadio() { return phy_; }
   MeshChannel &getChannel() { return channel_; }
@@ -102,8 +106,12 @@ private:
   void finishTx();
   uint32_t computeSlotTimeMsec() const;
   uint32_t computeBackoffMsec();
-  uint32_t sendPacket(PacketHeader &header, const uint8_t *payload, size_t len,
+  uint32_t sendPacket(PacketHeader &header, meshtastic_PortNum portNum,
+                      const uint8_t *payload, size_t len, PacketId requestId,
                       bool usePKI, const uint8_t *remotePubKey);
+  void handleDecoded(const MeshPacket &packet);
+  void queueAck(NodeNum to, PacketId requestId);
+  bool serviceAck();
 
   MeshConfig config_;
   PhysicalLayer *phy_;
@@ -124,6 +132,15 @@ private:
   PendingTx pending_;
   uint8_t reliableBroadcastAttempts_;
   uint8_t reliableUnicastAttempts_;
+  bool sendAcks_;
+
+  // Acks get their own slot so an application frame already staged cannot
+  // delay one. They are a few bytes and the sender is counting retries.
+  struct PendingAck {
+    bool queued;
+    NodeNum to;
+    PacketId requestId;
+  } ack_;
   SendResult lastSendResult_;
   float dutyCycleLimit_;
   bool carrierSense_;
