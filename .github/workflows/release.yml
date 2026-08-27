@@ -59,9 +59,9 @@ jobs:
 
       # Fails if upstream Data has gained a field that the trimmed
       # proto/meshtastic/leafdata.proto does not have yet.
+      # No NANOPB_PLUGIN here on purpose: protoc needs an absolute path, and
+      # regen-protos.sh resolves one with command -v.
       - name: Regenerate protobufs
-        env:
-          NANOPB_PLUGIN: protoc-gen-nanopb
         run: bin/regen-protos.sh
 
       - name: Set version

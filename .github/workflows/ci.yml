@@ -53,9 +53,9 @@ jobs:
           python-version: "3.11"
       - name: Install nanopb generator
         run: pip install "nanopb==${NANOPB_VERSION}" grpcio-tools
+      # No NANOPB_PLUGIN here on purpose: protoc needs an absolute path, and
+      # regen-protos.sh resolves one with command -v.
       - name: Regenerate
-        env:
-          NANOPB_PLUGIN: protoc-gen-nanopb
         run: bin/regen-protos.sh
       - name: Committed output must match a fresh generation
         run: |
