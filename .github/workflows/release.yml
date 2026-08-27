@@ -1,0 +1,110 @@
+name: Release
+
+# Manual only. Bumps the version everywhere it is hardcoded, regenerates the
+# protobufs, verifies the result, then tags and publishes.
+on:
+  # checkov:skip=CKV_GHA_7:a release has to be told which version to cut; the
+  # inputs are a version string and two booleans, all used as data, never as
+  # part of a build command.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version, MAJOR.MINOR.PATCH (no leading v)
+        required: true
+        type: string
+      update_protobufs:
+        description: Advance the protobufs submodule to upstream master first
+        type: boolean
+        default: true
+      dry_run:
+        description: Do everything except push the commit, tag and release
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  NANOPB_VERSION: 0.4.9.1
+
+jobs:
+  release:
+    name: Release ${{ inputs.version }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Reject a version that already exists
+        run: |
+          if git rev-parse -q --verify "refs/tags/v${{ inputs.version }}" >/dev/null; then
+            echo "::error::tag v${{ inputs.version }} already exists"
+            exit 1
+          fi
+
+      - name: Install tooling
+        run: pip install platformio "nanopb==${NANOPB_VERSION}" grpcio-tools
+
+      - name: Advance protobufs submodule
+        if: ${{ inputs.update_protobufs }}
+        run: |
+          git submodule update --remote protobufs
+          echo "protobufs now at $(git -C protobufs rev-parse --short HEAD)"
+
+      # Fails if upstream Data has gained a field that the trimmed
+      # proto/meshtastic/leafdata.proto does not have yet.
+      - name: Regenerate protobufs
+        env:
+          NANOPB_PLUGIN: protoc-gen-nanopb
+        run: bin/regen-protos.sh
+
+      - name: Set version
+        run: python bin/version.py --set "${{ inputs.version }}"
+
+      - name: Verify version references
+        run: python bin/version.py --check
+
+      - name: Host unit tests
+        working-directory: test-native
+        run: pio test -e native -v
+
+      - name: Build examples
+        run: |
+          for example in examples/*/; do
+            echo "::group::${example}"
+            (cd "$example" && pio run)
+            echo "::endgroup::"
+          done
+
+      - name: Show what changed
+        run: git --no-pager diff --stat
+
+      - name: Commit, tag and push
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "nothing to commit; tagging the current commit"
+          else
+            git add -A
+            git commit -m "Release ${{ inputs.version }}"
+          fi
+          git tag -a "v${{ inputs.version }}" -m "Release ${{ inputs.version }}"
+          git push origin HEAD:${{ github.ref_name }}
+          git push origin "v${{ inputs.version }}"
+
+      - name: Publish release
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ inputs.version }}" \
+            --title "v${{ inputs.version }}" \
+            --generate-notes

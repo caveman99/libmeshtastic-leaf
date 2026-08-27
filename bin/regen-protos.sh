@@ -11,14 +11,31 @@
 #   git submodule update --init protobufs
 #   pip install grpcio-tools
 #
-# NANOPB_PLUGIN must point at protoc-gen-nanopb (or protoc-gen-nanopb.bat on
-# Windows) from a nanopb 0.4.9 checkout.
+# The nanopb generator is found on PATH, or via NANOPB_PLUGIN if it lives
+# somewhere else (on Windows, point it at protoc-gen-nanopb.bat).
+#
+# The generator version decides the exact bytes of the output, so CI pins it.
+# Use the same version, currently nanopb 0.4.9.1, or the committed files will
+# churn.
 
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-: "${NANOPB_PLUGIN:?set NANOPB_PLUGIN to the path of protoc-gen-nanopb}"
+: "${NANOPB_PLUGIN:=$(command -v protoc-gen-nanopb || true)}"
+
+# protoc is a native Windows binary under Git Bash and cannot follow a POSIX
+# path, so hand it a Windows one when cygpath is available.
+if [ -n "${NANOPB_PLUGIN}" ] && command -v cygpath > /dev/null; then
+  NANOPB_PLUGIN=$(cygpath -w "${NANOPB_PLUGIN}")
+fi
+
+if [ -z "${NANOPB_PLUGIN}" ]; then
+  echo "protoc-gen-nanopb not found. Install it with:" >&2
+  echo "  pip install 'nanopb==0.4.9.1' grpcio-tools" >&2
+  echo "or set NANOPB_PLUGIN to its path." >&2
+  exit 1
+fi
 
 if [ ! -f protobufs/meshtastic/mesh.proto ]; then
   echo "protobufs submodule is empty; run: git submodule update --init protobufs" >&2

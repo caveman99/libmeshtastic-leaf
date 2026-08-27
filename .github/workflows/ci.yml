@@ -1,0 +1,121 @@
+name: CI
+
+# Runs on every pull request, and again on main after the merge commit lands.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  # The generator version decides the exact bytes of the committed nanopb
+  # output, so it is pinned. The runtime in library.json is not, because it
+  # only has to stay API compatible.
+  NANOPB_VERSION: 0.4.9.1
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: trunk-io/trunk-action@v1
+
+  version-refs:
+    name: Version references
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: library.properties and example lib_deps match library.json
+        run: python bin/version.py --check
+
+  protos:
+    name: Generated protobufs are current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install nanopb generator
+        run: pip install "nanopb==${NANOPB_VERSION}" grpcio-tools
+      - name: Regenerate
+        env:
+          NANOPB_PLUGIN: protoc-gen-nanopb
+        run: bin/regen-protos.sh
+      - name: Committed output must match a fresh generation
+        run: |
+          if ! git diff --exit-code -- src/generated; then
+            echo "::error::src/generated is stale. Run bin/regen-protos.sh and commit the result."
+            exit 1
+          fi
+
+  native-test:
+    name: Host unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-native-${{ hashFiles('test-native/platformio.ini') }}
+          restore-keys: pio-native-
+      - run: pip install platformio
+      - name: pio test
+        working-directory: test-native
+        run: pio test -e native -v
+
+  # The example list is derived from the tree so a new example is covered
+  # without touching this file.
+  list-examples:
+    name: Collect examples
+    runs-on: ubuntu-latest
+    outputs:
+      examples: ${{ steps.find.outputs.examples }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: find
+        run: |
+          examples=$(find examples -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | jq -R . | jq -sc .)
+          echo "examples=$examples" >> "$GITHUB_OUTPUT"
+          echo "Found: $examples"
+
+  examples:
+    name: Build ${{ matrix.example }}
+    needs: list-examples
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        example: ${{ fromJSON(needs.list-examples.outputs.examples) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-example-${{ hashFiles('examples/*/platformio.ini', 'library.json') }}
+          restore-keys: pio-example-
+      - run: pip install platformio
+      - name: pio run
+        working-directory: examples/${{ matrix.example }}
+        run: pio run
