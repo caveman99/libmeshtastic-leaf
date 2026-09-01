@@ -1,0 +1,2 @@
+# Style is pinned so clang-format, trunk and CI agree.
+BasedOnStyle: LLVM

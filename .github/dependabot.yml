@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # Keeps the actions in .github/workflows current. Without this they rot
+  # silently until a runner drops the Node version they pin.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ["*"]

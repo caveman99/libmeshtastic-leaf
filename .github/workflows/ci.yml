@@ -1,0 +1,177 @@
+name: CI
+
+# Runs on every pull request, and again on main after the merge commit lands.
+#
+# Security notes, since every job here executes code from the repository
+# (regen-protos.py, version.py, and PlatformIO, which runs extra_scripts from
+# platformio.ini):
+#
+#   - the trigger is pull_request, never pull_request_target, so a pull request
+#     from a fork gets a read-only token and no secrets
+#   - permissions are denied at the top and granted per job
+#   - persist-credentials is off, so the token is never written into
+#     .git/config where a later step could read it back out
+#   - actions are pinned to a commit, so a moved tag cannot swap the code that
+#     runs alongside the token. Dependabot updates the pins.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: {}
+
+env:
+  # The generator version decides the exact bytes of the committed nanopb
+  # output, so it is pinned. The runtime in library.json is not, because it
+  # only has to stay API compatible.
+  NANOPB_VERSION: 0.4.9.1
+
+jobs:
+  lint:
+    name: Lint and formatting
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: trunk-io/trunk-action@e1234e67a86010d61ddac8d8ebf4b783e2ffd2fa # v2.0.0
+
+  cppcheck:
+    name: Static analysis
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install cppcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cppcheck
+          cppcheck --version
+      # Generated sources are excluded from the scan but stay on the include
+      # path. unusedFunction cannot see the .ino files, so every public entry
+      # point would read as unused.
+      - name: cppcheck
+        run: |
+          cppcheck --enable=all --inconclusive --check-level=exhaustive             --std=c++11 --language=c++ --error-exitcode=1             --suppress=missingIncludeSystem --suppress=missingInclude             --suppress=checkersReport --suppress=unmatchedSuppression             --suppress=unusedFunction             -DPB_PROTO_HEADER_VERSION=40 -DARDUINO=100             -I src -I src/generated -i src/generated             src/ examples/
+
+  version-refs:
+    name: Version references
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+      - name: library.properties and example lib_deps match library.json
+        run: python bin/version.py --check
+
+  protos:
+    name: Generated protobufs are current
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+      - name: Install nanopb generator
+        run: pip install "nanopb==${NANOPB_VERSION}" grpcio-tools
+      - name: Regenerate
+        run: python bin/regen-protos.py
+      - name: Committed output must match a fresh generation
+        run: |
+          if ! git diff --exit-code -- src/generated; then
+            echo "::error::src/generated is stale. Run bin/regen-protos.py and commit the result."
+            exit 1
+          fi
+
+  native-test:
+    name: Host unit tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.platformio
+          key: pio-native-${{ hashFiles('test-native/platformio.ini') }}
+          restore-keys: pio-native-
+      - run: pip install platformio
+      - name: pio test
+        working-directory: test-native
+        run: pio test -e native -v
+
+  # The example list is derived from the tree so a new example is covered
+  # without touching this file.
+  list-examples:
+    name: Collect examples
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      examples: ${{ steps.find.outputs.examples }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - id: find
+        run: |
+          examples=$(find examples -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | jq -R . | jq -sc .)
+          echo "examples=$examples" >> "$GITHUB_OUTPUT"
+          echo "Found: $examples"
+
+  examples:
+    name: Build ${{ matrix.example }}
+    needs: list-examples
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        example: ${{ fromJSON(needs.list-examples.outputs.examples) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.platformio
+          key: pio-example-${{ hashFiles('examples/*/platformio.ini', 'library.json') }}
+          restore-keys: pio-example-
+      - run: pip install platformio
+      # matrix.example comes from a directory listing in this repository, but
+      # it still goes through the environment rather than being interpolated
+      # into the shell.
+      - name: pio run
+        env:
+          EXAMPLE: ${{ matrix.example }}
+        run: cd "examples/${EXAMPLE}" && pio run
